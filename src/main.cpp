@@ -10,6 +10,7 @@
 #include "audio.h"
 #include "hud.h"
 #include "savegame.h"
+#include "textures.h"
 
 // Состояния игры
 enum GameState { MENU, PLAYING, LEVEL_UP, PAUSED, GAME_OVER };
@@ -27,11 +28,15 @@ int main()
     HUD hud;
     hud.Init(screenWidth, screenHeight);
 
+    // Менеджер текстур: грузит и кэширует спрайты (PNG). Один на всю игру.
+    TextureManager textures;
+
     GameSave save = LoadGameSave();
     if (audio.ready) SetMasterVolume(save.volume / 100.0f);
 
     TileMap map;
     Player player(map.GetSpawnPoint());
+    player.LoadSprites(textures);
     Spawner spawner(200);
     Weapon weapon(300);
     ExpOrbs orbs(500);
@@ -57,6 +62,7 @@ int main()
     auto startNewGame = [&]() {
         map.Generate(64, 44, (unsigned)GetRandomValue(1, 1000000));
         player = Player(map.GetSpawnPoint());
+        player.LoadSprites(textures);
         spawner = Spawner(200);
         weapon = Weapon(300);
         orbs = ExpOrbs(500);
@@ -206,6 +212,7 @@ int main()
 
     audio.Unload();
     hud.Unload();
+    textures.UnloadAll();
     CloseWindow();
     return 0;
 }
