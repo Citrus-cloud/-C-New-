@@ -14,6 +14,7 @@ public:
     float bossTimer;
     float bossInterval;
     float elapsed;
+    int bossEventLine;  // -1 = ничего; иначе номер реплики появившегося босса
 
     Spawner(int poolSize);
     Enemy* GetInactive();

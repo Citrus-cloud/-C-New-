@@ -11,6 +11,7 @@ public:
     int health;
     int maxHealth;
     float hitCooldown;   // i-frames: неуязвимость после удара
+    bool gotHit;         // флаг: в этом кадре получили урон (для звука)
     int xp;
     int level;
     int xpToNext;

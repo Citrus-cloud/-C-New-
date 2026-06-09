@@ -3,7 +3,7 @@
 
 Spawner::Spawner(int poolSize)
     : spawnTimer(0.0f), spawnInterval(2.0f),
-      bossTimer(0.0f), bossInterval(30.0f), elapsed(0.0f)
+      bossTimer(0.0f), bossInterval(30.0f), elapsed(0.0f), bossEventLine(-1)
 {
     enemies.resize(poolSize);
 }
@@ -27,7 +27,6 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
         Vector2 pos = { center.x + cosf(angle) * r, center.y + sinf(angle) * r };
         pos = map.FindFreeSpot(pos, 16.0f);
 
-        // Выбор типа: со временем появляются танки, всегда есть шанс на быстрых
         EnemyType t = ENEMY_GRUNT;
         int roll = GetRandomValue(0, 99);
         if (elapsed > 60.0f && roll < 20) t = ENEMY_TANK;
@@ -44,6 +43,7 @@ void Spawner::SpawnBoss(Vector2 center, const TileMap& map)
     Vector2 pos = { center.x + 600.0f, center.y };
     pos = map.FindFreeSpot(pos, 38.0f);
     e->Spawn(pos, ENEMY_BOSS);
+    bossEventLine = GetRandomValue(0, 1);  // выбираем реплику босса
 }
 
 void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
@@ -68,7 +68,7 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
     {
         e.Update(deltaTime, player.position, map);
         if (e.active && CheckCollisionRecs(e.GetRect(), player.GetRect()))
-            player.TakeDamage(e.damage);  // урон при касании (с i-frames)
+            player.TakeDamage(e.damage);
     }
 }
 

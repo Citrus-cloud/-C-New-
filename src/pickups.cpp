@@ -3,7 +3,7 @@
 
 ExpOrb::ExpOrb() : position({ 0.0f, 0.0f }), active(false) {}
 
-ExpOrbs::ExpOrbs(int maxOrbs)
+ExpOrbs::ExpOrbs(int maxOrbs) : collectedThisFrame(0)
 {
     pool.resize(maxOrbs);
 }
@@ -25,8 +25,9 @@ void ExpOrbs::Spawn(Vector2 pos)
 
 void ExpOrbs::Update(float dt, Player& player)
 {
-    const float magnetRadius = 120.0f;  // с этого расстояния сфера летит к игроку
-    const float pickupRadius = 24.0f;   // с этого - собирается
+    collectedThisFrame = 0;
+    const float magnetRadius = 120.0f;
+    const float pickupRadius = 24.0f;
     const float magnetSpeed = 320.0f;
 
     for (ExpOrb& o : pool)
@@ -39,7 +40,8 @@ void ExpOrbs::Update(float dt, Player& player)
         if (dist < pickupRadius)
         {
             o.active = false;
-            player.xp += 1;  // собрали опыт
+            player.xp += 1;
+            collectedThisFrame++;
         }
         else if (dist < magnetRadius && dist > 0.01f)
         {

@@ -25,6 +25,8 @@ add_executable(${PROJECT_NAME}
     src/pathfinding.cpp
     src/traps.cpp
     src/loot.cpp
+    src/audio.cpp
+    src/hud.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} raylib)

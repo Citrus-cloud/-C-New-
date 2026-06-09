@@ -3,7 +3,7 @@
 
 Weapon::Weapon(int maxProjectiles)
     : fireTimer(0.0f), fireInterval(0.5f), projectileSpeed(500.0f), damage(15),
-      level(1), projectileCount(1), pierce(0), evolved(false)
+      level(1), projectileCount(1), pierce(0), evolved(false), firedThisFrame(false)
 {
     pool.resize(maxProjectiles);
 }
@@ -30,7 +30,6 @@ Enemy* Weapon::FindNearestEnemy(Vector2 from, Spawner& spawner)
     return nearest;
 }
 
-// Эволюция оружия: веерный выстрел тремя пробивающими снарядами
 void Weapon::Evolve()
 {
     if (evolved) return;
@@ -42,6 +41,7 @@ void Weapon::Evolve()
 
 void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs, LootDrops& loot)
 {
+    firedThisFrame = false;
     fireTimer += dt;
     if (fireTimer >= fireInterval)
     {
@@ -53,7 +53,7 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
             float len = sqrtf(dir.x * dir.x + dir.y * dir.y);
             if (len > 0.01f) { dir.x /= len; dir.y /= len; }
             float baseAngle = atan2f(dir.y, dir.x);
-            float spread = 0.25f;  // радиан между снарядами в веере
+            float spread = 0.25f;
 
             for (int i = 0; i < projectileCount; i++)
             {
@@ -65,6 +65,7 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
                 p->Fire(playerPos, vel, pierce);
                 p->damage = damage;
             }
+            firedThisFrame = true;
         }
     }
 
@@ -80,8 +81,8 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
             if (CheckCollisionRecs(p.GetRect(), e.GetRect()))
             {
                 e.health -= p.damage;
-                if (p.pierce > 0) p.pierce--;   // снаряд пробивает дальше
-                else p.active = false;          // обычный снаряд гаснет
+                if (p.pierce > 0) p.pierce--;
+                else p.active = false;
 
                 if (e.health <= 0)
                 {
@@ -89,7 +90,6 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
                     for (int k = 0; k < e.xpValue; k++)
                         orbs.Spawn(e.position);
 
-                    // Лут: шанс выпадения зависит от типа врага
                     int dropRoll = GetRandomValue(0, 99);
                     if (e.type == ENEMY_BOSS)
                     {
@@ -106,7 +106,7 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
                     }
                 }
 
-                if (!p.active) break;  // снаряд кончился — выходим из цикла врагов
+                if (!p.active) break;
             }
         }
     }

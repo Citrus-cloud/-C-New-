@@ -6,7 +6,6 @@
 #include "loot.h"
 #include <vector>
 
-// Оружие: автоатака по ближайшему врагу + пул снарядов
 class Weapon
 {
 public:
@@ -15,10 +14,11 @@ public:
     float fireInterval;
     float projectileSpeed;
     int damage;
-    int level;            // уровень оружия (растёт от апгрейдов)
-    int projectileCount;  // снарядов за выстрел
-    int pierce;           // сколько врагов пробивает снаряд
-    bool evolved;         // эволюционировало ли оружие
+    int level;
+    int projectileCount;
+    int pierce;
+    bool evolved;
+    bool firedThisFrame;  // выстрелили ли в этом кадре (для звука)
 
     Weapon(int maxProjectiles);
 

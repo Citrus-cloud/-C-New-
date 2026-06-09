@@ -7,9 +7,11 @@
 #include "upgrades.h"
 #include "traps.h"
 #include "loot.h"
+#include "audio.h"
+#include "hud.h"
 
 // Состояния игры
-enum GameState { PLAYING, LEVEL_UP };
+enum GameState { MENU, PLAYING, LEVEL_UP, PAUSED, GAME_OVER };
 
 int main()
 {
@@ -18,6 +20,11 @@ int main()
 
     InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition");
     SetTargetFPS(60);
+
+    AudioManager audio;
+    audio.Init();
+    HUD hud;
+    hud.Init(screenWidth, screenHeight);
 
     TileMap map;
     Player player(map.GetSpawnPoint());
@@ -28,30 +35,84 @@ int main()
     traps.Generate(map, 16, 777u);
     LootDrops loot(200);
 
-    GameState state = PLAYING;
+    float survivalTime = 0.0f;
+    float subtitleTimer = 0.0f;
+    int subtitleLine = -1;
+    const char* bossSpeakers[2] = { "Королева пауков", "Чёрный рыцарь" };
+    const char* bossLines[2] = { "Ты будешь кормом моих детей.", "Жалкая пародия." };
+
+    GameState state = MENU;
 
     Camera2D camera = { 0 };
-    camera.target = player.position;
     camera.offset = { screenWidth / 2.0f, screenHeight / 2.0f };
     camera.rotation = 0.0f;
     camera.zoom = 1.0f;
+    camera.target = player.position;
+
+    auto startNewGame = [&]() {
+        map.Generate(64, 44, (unsigned)GetRandomValue(1, 1000000));
+        player = Player(map.GetSpawnPoint());
+        spawner = Spawner(200);
+        weapon = Weapon(300);
+        orbs = ExpOrbs(500);
+        traps = Traps();
+        traps.Generate(map, 16, (unsigned)GetRandomValue(1, 1000000));
+        loot = LootDrops(200);
+        survivalTime = 0.0f;
+        subtitleTimer = 0.0f;
+        subtitleLine = -1;
+        camera.target = player.position;
+    };
 
     while (!WindowShouldClose())
     {
-        float deltaTime = GetFrameTime();
+        float dt = GetFrameTime();
+        audio.Update();
 
-        if (state == PLAYING)
+        if (state == MENU)
         {
-            player.Update(deltaTime, map);
-            spawner.Update(deltaTime, player, map);
-            weapon.Update(deltaTime, player.position, spawner, orbs, loot);
-            orbs.Update(deltaTime, player);
-            loot.Update(deltaTime, player, weapon);
-            traps.Update(deltaTime, player);
+            audio.PlayMenuMusic();
+            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))
+            {
+                startNewGame();
+                state = PLAYING;
+                audio.PlayGameMusic();
+            }
+        }
+        else if (state == PLAYING)
+        {
+            survivalTime += dt;
+            player.Update(dt, map);
+            spawner.Update(dt, player, map);
+            if (player.gotHit) audio.Hit();
+            if (spawner.bossEventLine >= 0)
+            {
+                subtitleLine = spawner.bossEventLine;
+                subtitleTimer = 4.0f;
+                audio.PlayBossVoice(subtitleLine);
+                spawner.bossEventLine = -1;
+            }
+            weapon.Update(dt, player.position, spawner, orbs, loot);
+            if (weapon.firedThisFrame) audio.Shoot();
+            orbs.Update(dt, player);
+            if (orbs.collectedThisFrame > 0) audio.Pickup();
+            loot.Update(dt, player, weapon);
+            traps.Update(dt, player);
             camera.target = player.position;
 
-            if (player.TryLevelUp())
+            if (subtitleTimer > 0.0f) subtitleTimer -= dt;
+
+            if (player.health <= 0)
+            {
+                state = GAME_OVER;
+            }
+            else if (player.TryLevelUp())
+            {
                 state = LEVEL_UP;
+                audio.LevelUp();
+            }
+
+            if (IsKeyPressed(KEY_ESCAPE)) state = PAUSED;
         }
         else if (state == LEVEL_UP)
         {
@@ -59,47 +120,66 @@ int main()
             if (IsKeyPressed(KEY_ONE))   choice = 1;
             if (IsKeyPressed(KEY_TWO))   choice = 2;
             if (IsKeyPressed(KEY_THREE)) choice = 3;
-
             if (choice != 0)
             {
                 ApplyUpgrade(choice, player, weapon);
-                if (!player.TryLevelUp())
-                    state = PLAYING;
+                if (!player.TryLevelUp()) state = PLAYING;
+            }
+        }
+        else if (state == PAUSED)
+        {
+            if (IsKeyPressed(KEY_ESCAPE)) state = PLAYING;
+        }
+        else if (state == GAME_OVER)
+        {
+            if (IsKeyPressed(KEY_ENTER))
+            {
+                state = MENU;
+                audio.PlayMenuMusic();
             }
         }
 
         BeginDrawing();
             ClearBackground(BLACK);
 
-            BeginMode2D(camera);
-                map.Draw();
-                traps.Draw();
-                loot.Draw();
-                orbs.Draw();
-                spawner.Draw();
-                weapon.Draw();
-                player.Draw();
-            EndMode2D();
-
-            DrawText("WASD / Arrows / Gamepad - move", 10, 40, 20, RAYWHITE);
-            DrawText(TextFormat("HP: %d / %d", player.health, player.maxHealth), 10, 65, 20, (player.health > 30) ? GREEN : RED);
-            DrawText(TextFormat("Enemies: %d", spawner.ActiveCount()), 10, 90, 20, RAYWHITE);
-            DrawText(TextFormat("Level: %d   XP: %d / %d", player.level, player.xp, player.xpToNext), 10, 115, 20, RAYWHITE);
-            DrawText(TextFormat("Weapon Lv: %d%s", weapon.level, weapon.evolved ? " (EVOLVED)" : ""), 10, 140, 20, weapon.evolved ? GOLD : RAYWHITE);
-            DrawFPS(10, 10);
-
-            if (state == LEVEL_UP)
+            if (state == MENU)
             {
-                DrawRectangle(0, 0, screenWidth, screenHeight, Color{ 0, 0, 0, 160 });
-                DrawText("LEVEL UP!", screenWidth / 2 - 110, 220, 50, YELLOW);
-                DrawText("Vyberi uluchshenie (1 / 2 / 3):", screenWidth / 2 - 220, 300, 26, RAYWHITE);
-                DrawText(GetUpgradeText(1), screenWidth / 2 - 200, 360, 24, RAYWHITE);
-                DrawText(GetUpgradeText(2), screenWidth / 2 - 200, 400, 24, RAYWHITE);
-                DrawText(GetUpgradeText(3), screenWidth / 2 - 200, 440, 24, RAYWHITE);
+                hud.DrawMenu();
             }
+            else
+            {
+                BeginMode2D(camera);
+                    map.Draw();
+                    traps.Draw();
+                    loot.Draw();
+                    orbs.Draw();
+                    spawner.Draw();
+                    weapon.Draw();
+                    player.Draw();
+                EndMode2D();
+
+                hud.DrawGame(player, spawner, weapon, survivalTime);
+
+                if (subtitleTimer > 0.0f && subtitleLine >= 0)
+                {
+                    float alpha = (subtitleTimer < 1.0f) ? subtitleTimer : 1.0f;
+                    hud.DrawSubtitle(bossSpeakers[subtitleLine], bossLines[subtitleLine], alpha);
+                }
+
+                if (state == LEVEL_UP)
+                    hud.DrawLevelUp(GetUpgradeText(1), GetUpgradeText(2), GetUpgradeText(3));
+                else if (state == PAUSED)
+                    hud.DrawPause();
+                else if (state == GAME_OVER)
+                    hud.DrawGameOver(survivalTime, player.level);
+            }
+
+            DrawFPS(screenWidth - 90, screenHeight - 28);
         EndDrawing();
     }
 
+    audio.Unload();
+    hud.Unload();
     CloseWindow();
     return 0;
 }

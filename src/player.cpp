@@ -3,7 +3,7 @@
 
 Player::Player(Vector2 startPos)
     : position(startPos), speed(250.0f), health(100), maxHealth(100),
-      hitCooldown(0.0f), xp(0), level(1), xpToNext(5)
+      hitCooldown(0.0f), gotHit(false), xp(0), level(1), xpToNext(5)
 {
 }
 
@@ -26,10 +26,11 @@ bool Player::TryLevelUp()
 
 void Player::TakeDamage(int dmg)
 {
-    if (hitCooldown > 0.0f) return;  // ещё неуязвимы после прошлого удара
+    if (hitCooldown > 0.0f) return;
     health -= dmg;
     if (health < 0) health = 0;
     hitCooldown = 0.5f;
+    gotHit = true;
 }
 
 void Player::Heal(int amount)
@@ -46,6 +47,7 @@ void Player::ResolveStuck(const TileMap& map)
 
 void Player::Update(float deltaTime, const TileMap& map)
 {
+    gotHit = false;
     if (hitCooldown > 0.0f) hitCooldown -= deltaTime;
     ResolveStuck(map);
 
@@ -73,7 +75,6 @@ void Player::Update(float deltaTime, const TileMap& map)
 
         position.x += dx;
         if (map.CheckCollision(GetRect())) position.x -= dx;
-
         position.y += dy;
         if (map.CheckCollision(GetRect())) position.y -= dy;
     }

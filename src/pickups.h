@@ -3,7 +3,6 @@
 #include "player.h"
 #include <vector>
 
-// Сфера опыта, выпадающая из врагов
 class ExpOrb
 {
 public:
@@ -12,16 +11,16 @@ public:
     ExpOrb();
 };
 
-// Пул сфер опыта
 class ExpOrbs
 {
 public:
     std::vector<ExpOrb> pool;
+    int collectedThisFrame;  // сколько сфер собрано в этом кадре (для звука)
 
     ExpOrbs(int maxOrbs);
 
     void Spawn(Vector2 pos);
-    void Update(float dt, Player& player);  // притяжение и сбор опыта
+    void Update(float dt, Player& player);
     void Draw() const;
     ExpOrb* GetInactive();
 };
