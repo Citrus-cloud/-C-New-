@@ -1,5 +1,6 @@
 #include "raylib.h"
 #include "player.h"
+#include "tilemap.h"
 
 int main()
 {
@@ -9,10 +10,9 @@ int main()
     InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition");
     SetTargetFPS(60);
 
-    // Создаём игрока в центре мира (0, 0)
-    Player player({ 0.0f, 0.0f });
+    TileMap map;
+    Player player({ 224.0f, 160.0f });  // старт на полу внутри комнаты
 
-    // Камера 2D, которая будет следить за игроком
     Camera2D camera = { 0 };
     camera.target = player.position;
     camera.offset = { screenWidth / 2.0f, screenHeight / 2.0f };
@@ -23,19 +23,14 @@ int main()
     {
         float deltaTime = GetFrameTime();
 
-        player.Update(deltaTime);
-        camera.target = player.position;  // камера следует за игроком
+        player.Update(deltaTime, map);
+        camera.target = player.position;
 
         BeginDrawing();
             ClearBackground(BLACK);
 
             BeginMode2D(camera);
-                // Сетка-ориентир, чтобы было видно движение
-                for (int x = -1000; x <= 1000; x += 100)
-                    DrawLine(x, -1000, x, 1000, DARKGRAY);
-                for (int y = -1000; y <= 1000; y += 100)
-                    DrawLine(-1000, y, 1000, y, DARKGRAY);
-
+                map.Draw();
                 player.Draw();
             EndMode2D();
 
