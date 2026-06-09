@@ -30,6 +30,7 @@ add_executable(${PROJECT_NAME}
     src/savegame.cpp
     src/textures.cpp
     src/animation.cpp
+    src/effects.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} raylib)

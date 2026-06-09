@@ -6,6 +6,8 @@
 #include "loot.h"
 #include <vector>
 
+class Effects;   // вперёд-объявление системы эффектов (Фаза 4)
+
 class Weapon
 {
 public:
@@ -25,6 +27,7 @@ public:
     Projectile* GetInactive();
     Enemy* FindNearestEnemy(Vector2 from, Spawner& spawner);
     void Evolve();
-    void Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs, LootDrops& loot);
+    // effects — искры/числа урона/взрывы при попаданиях и смерти (Фаза 4).
+    void Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs, LootDrops& loot, Effects& effects);
     void Draw() const;
 };

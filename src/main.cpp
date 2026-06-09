@@ -11,6 +11,7 @@
 #include "hud.h"
 #include "savegame.h"
 #include "textures.h"
+#include "effects.h"
 
 // Состояния игры
 enum GameState { MENU, PLAYING, LEVEL_UP, PAUSED, GAME_OVER };
@@ -46,6 +47,10 @@ int main()
     traps.Generate(map, 16, 777u);
     LootDrops loot(200);
 
+    // Система эффектов (Фаза 4): частицы, тряска, VFX, числа урона, затемнения.
+    Effects effects;
+    effects.LoadArt(textures);
+
     float survivalTime = 0.0f;
     float subtitleTimer = 0.0f;
     int subtitleLine = -1;
@@ -60,6 +65,7 @@ int main()
     camera.rotation = 0.0f;
     camera.zoom = 1.0f;
     camera.target = player.position;
+    Vector2 baseCamOffset = camera.offset;  // базовый offset (к нему прибавляем тряску)
 
     auto startNewGame = [&]() {
         map.Generate(96, 72, (unsigned)GetRandomValue(1, 1000000));
@@ -73,6 +79,7 @@ int main()
         traps = Traps();
         traps.Generate(map, 16, (unsigned)GetRandomValue(1, 1000000));
         loot = LootDrops(200);
+        effects.Clear();
         survivalTime = 0.0f;
         subtitleTimer = 0.0f;
         subtitleLine = -1;
@@ -84,6 +91,7 @@ int main()
     {
         float dt = GetFrameTime();
         audio.Update();
+        effects.Update(dt);   // эффекты живут во всех состояниях
 
         if (state == MENU)
         {
@@ -114,7 +122,13 @@ int main()
             survivalTime += dt;
             player.Update(dt, map);
             spawner.Update(dt, player, map);
-            if (player.gotHit) audio.Hit();
+            if (player.gotHit)
+            {
+                audio.Hit();
+                effects.Shake(7.0f, 0.25f);
+                effects.Flash(Color{ 255, 60, 60, 255 }, 0.45f);
+                effects.SpawnBlood(player.position, 8);
+            }
             if (spawner.bossEventLine >= 0)
             {
                 subtitleLine = spawner.bossEventLine;
@@ -122,13 +136,15 @@ int main()
                 audio.PlayBossVoice(subtitleLine);
                 spawner.bossEventLine = -1;
             }
-            weapon.Update(dt, player.position, spawner, orbs, loot);
+            weapon.Update(dt, player.position, spawner, orbs, loot, effects);
             if (weapon.firedThisFrame) audio.Shoot();
             orbs.Update(dt, player);
             if (orbs.collectedThisFrame > 0) audio.Pickup();
             loot.Update(dt, player, weapon);
             traps.Update(dt, player);
             camera.target = player.position;
+            camera.offset = { baseCamOffset.x + effects.ShakeOffset().x,
+                              baseCamOffset.y + effects.ShakeOffset().y };
 
             if (subtitleTimer > 0.0f) subtitleTimer -= dt;
 
@@ -140,11 +156,14 @@ int main()
                 if (t > save.bestTime) { save.bestTime = t; newRecord = true; }
                 if (player.level > save.bestLevel) { save.bestLevel = player.level; newRecord = true; }
                 if (newRecord) SaveGameSave(save);
+                effects.Shake(14.0f, 0.6f);
+                effects.SetFade(0.65f, 1.5f);   // плавное затемнение при смерти (Шаг 19)
             }
             else if (player.TryLevelUp())
             {
                 state = LEVEL_UP;
                 audio.LevelUp();
+                effects.SpawnMagicCircle(player.position, 1.6f);  // VFX левел-апа (Шаг 17)
             }
 
             if (IsKeyPressed(KEY_ESCAPE)) state = PAUSED;
@@ -170,6 +189,7 @@ int main()
             if (IsKeyPressed(KEY_ENTER))
             {
                 state = MENU;
+                effects.SetFade(0.0f, 2.0f);
                 audio.PlayMenuMusic();
             }
         }
@@ -191,7 +211,10 @@ int main()
                     spawner.Draw();
                     weapon.Draw();
                     player.Draw();
+                    effects.DrawWorld();   // частицы, VFX, числа урона (в мире)
                 EndMode2D();
+
+                effects.DrawScreen(screenWidth, screenHeight);  // вспышка + затемнение
 
                 hud.DrawGame(player, spawner, weapon, survivalTime);
 

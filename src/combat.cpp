@@ -1,4 +1,5 @@
 #include "combat.h"
+#include "effects.h"
 #include <cmath>
 
 Weapon::Weapon(int maxProjectiles)
@@ -39,7 +40,7 @@ void Weapon::Evolve()
     damage += 10;
 }
 
-void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs, LootDrops& loot)
+void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs, LootDrops& loot, Effects& effects)
 {
     firedThisFrame = false;
     fireTimer += dt;
@@ -81,12 +82,24 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
             if (CheckCollisionRecs(p.GetRect(), e.GetRect()))
             {
                 e.health -= p.damage;
+
+                // Эффекты попадания (Шаг 15, 18): искры + всплывающее число урона.
+                effects.SpawnSparks(e.position, Color{ 255, 200, 80, 255 }, 5);
+                effects.SpawnDamageNumber(e.position, p.damage, e.type == ENEMY_BOSS);
+
                 if (p.pierce > 0) p.pierce--;
                 else p.active = false;
 
                 if (e.health <= 0)
                 {
                     e.Kill();  // запускаем анимацию смерти (или сразу убираем)
+
+                    // Эффекты смерти (Шаг 16, 17): кровь, взрыв, для босса — тряска.
+                    bool boss = (e.type == ENEMY_BOSS);
+                    effects.SpawnBlood(e.position, boss ? 40 : 14);
+                    effects.SpawnExplosion(e.position, boss ? 2.2f : 1.0f);
+                    if (boss) effects.Shake(11.0f, 0.45f);
+
                     for (int k = 0; k < e.xpValue; k++)
                         orbs.Spawn(e.position);
 
