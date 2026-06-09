@@ -35,6 +35,7 @@ int main()
     if (audio.ready) SetMasterVolume(save.volume / 100.0f);
 
     TileMap map;
+    map.LoadArt(textures);
     Player player(map.GetSpawnPoint());
     player.LoadSprites(textures);
     Spawner spawner(200);
@@ -61,7 +62,8 @@ int main()
     camera.target = player.position;
 
     auto startNewGame = [&]() {
-        map.Generate(64, 44, (unsigned)GetRandomValue(1, 1000000));
+        map.Generate(96, 72, (unsigned)GetRandomValue(1, 1000000));
+        map.LoadArt(textures);
         player = Player(map.GetSpawnPoint());
         player.LoadSprites(textures);
         spawner = Spawner(200);
@@ -87,7 +89,6 @@ int main()
         {
             audio.PlayMenuMusic();
 
-            // Настройка громкости
             if (IsKeyPressed(KEY_LEFT))
             {
                 save.volume -= 5; if (save.volume < 0) save.volume = 0;
@@ -183,7 +184,7 @@ int main()
             else
             {
                 BeginMode2D(camera);
-                    map.Draw();
+                    map.Draw(camera);
                     traps.Draw();
                     loot.Draw();
                     orbs.Draw();

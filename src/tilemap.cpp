@@ -1,19 +1,39 @@
 #include "tilemap.h"
+#include "textures.h"
 #include <cmath>
 #include <random>
 #include <algorithm>
 
-TileMap::TileMap() : tileSize(64), spawnCol(2), spawnRow(2)
+TileMap::TileMap()
+    : tileSize(64), worldSeed(20240609u), spawnCol(2), spawnRow(2), hasArt(false)
 {
-    // Генерируем карту 64x44 тайла (фиксированный seed для повторяемости)
-    Generate(64, 44, 20240609u);
+    // Обнуляем хендлы текстур (загружаются позже через LoadArt).
+    texFloor = texWall = texBones = texPuddle = texGrass = Texture2D{ 0 };
+    // Большая карта (Шаг 13). Фиксированный seed для первого экрана.
+    Generate(96, 72, 20240609u);
+}
+
+// Загружает текстуры тайлсета (Шаг 10). Если файла нет — хендл остаётся нулевым
+// и тайл рисуется цветным прямоугольником (поведение v0.1).
+void TileMap::LoadArt(TextureManager& tex)
+{
+    texFloor  = tex.IsReal("assets/tiles/floor.png")        ? tex.Get("assets/tiles/floor.png")        : Texture2D{ 0 };
+    texWall   = tex.IsReal("assets/tiles/wall.png")         ? tex.Get("assets/tiles/wall.png")         : Texture2D{ 0 };
+    texBones  = tex.IsReal("assets/tiles/decor_bones.png")  ? tex.Get("assets/tiles/decor_bones.png")  : Texture2D{ 0 };
+    texPuddle = tex.IsReal("assets/tiles/decor_puddle.png") ? tex.Get("assets/tiles/decor_puddle.png") : Texture2D{ 0 };
+    texGrass  = tex.IsReal("assets/tiles/decor_grass.png")  ? tex.Get("assets/tiles/decor_grass.png")  : Texture2D{ 0 };
+    if (texFloor.id != 0) SetTextureFilter(texFloor, TEXTURE_FILTER_POINT);
+    if (texWall.id != 0)  SetTextureFilter(texWall,  TEXTURE_FILTER_POINT);
+    hasArt = (texFloor.id != 0 || texWall.id != 0);
 }
 
 // Процедурная генерация: случайные комнаты, соединённые коридорами.
 void TileMap::Generate(int width, int height, unsigned int seed)
 {
+    worldSeed = seed;  // запоминаем seed для детерминированных вариаций тайлов
     std::mt19937 rng(seed);
     grid.assign(height, std::string(width, 'W'));
+    decor.assign(height, std::string(width, ' '));
     rooms.clear();
 
     auto carveRoom = [&](int rx, int ry, int rw, int rh) {
@@ -33,14 +53,15 @@ void TileMap::Generate(int width, int height, unsigned int seed)
                 grid[y][x] = '.';
     };
 
-    std::uniform_int_distribution<int> roomCount(14, 20);
+    // Больше комнат для большей карты (Шаг 13).
+    std::uniform_int_distribution<int> roomCount(22, 32);
     int n = roomCount(rng);
     int prevcx = 0, prevcy = 0;
     bool first = true;
 
     for (int i = 0; i < n; i++)
     {
-        std::uniform_int_distribution<int> wd(4, 9), hd(4, 8);
+        std::uniform_int_distribution<int> wd(4, 10), hd(4, 9);
         int rw = wd(rng), rh = hd(rng);
         if (width - rw - 2 < 1 || height - rh - 2 < 1) continue;
         std::uniform_int_distribution<int> xd(1, width - rw - 2), yd(1, height - rh - 2);
@@ -51,7 +72,7 @@ void TileMap::Generate(int width, int height, unsigned int seed)
         if (!first)
         {
             carveH(prevcx, cx, prevcy);  // горизонтальный коридор
-            carveV(prevcy, cy, cx);      // и вертикальный - получается «L»
+            carveV(prevcy, cy, cx);      // и вертикальный - получается L
         }
         else
         {
@@ -63,6 +84,18 @@ void TileMap::Generate(int width, int height, unsigned int seed)
         prevcx = cx;
         prevcy = cy;
     }
+
+    // Декорации на полу (Шаг 12): кости / лужи / трава.
+    std::uniform_int_distribution<int> decorRoll(0, 99);
+    for (int y = 1; y < height - 1; y++)
+        for (int x = 1; x < width - 1; x++)
+            if (grid[y][x] == '.')
+            {
+                int r = decorRoll(rng);
+                if (r < 4)       decor[y][x] = 'b';
+                else if (r < 8)  decor[y][x] = 'p';
+                else if (r < 14) decor[y][x] = 'g';
+            }
 }
 
 bool TileMap::IsWall(int col, int row) const
@@ -72,19 +105,96 @@ bool TileMap::IsWall(int col, int row) const
     return grid[row][col] == 'W';
 }
 
-void TileMap::Draw() const
+// Детерминированный хеш координаты тайла.
+// Зависит только от seed и (col,row) — это позволяет в будущем генерировать
+// мир чанками без хранения всей карты в памяти.
+unsigned int TileMap::TileHash(int col, int row) const
 {
-    for (int row = 0; row < (int)grid.size(); row++)
+    unsigned int h = worldSeed;
+    h ^= (unsigned int)(col * 374761393);
+    h ^= (unsigned int)(row * 668265263);
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return h ^ (h >> 16);
+}
+
+// Рисует тайл цветным прямоугольником (fallback без текстур), с лёгкой вариацией оттенка.
+static void DrawFallbackTile(int x, int y, int tileSize, bool wall, unsigned int h)
+{
+    if (wall)
     {
-        for (int col = 0; col < (int)grid[row].size(); col++)
+        unsigned char d = (unsigned char)(h % 16);
+        DrawRectangle(x, y, tileSize, tileSize,
+                      Color{ (unsigned char)(96 + d), (unsigned char)(66 + d / 2), (unsigned char)(40 + d / 3), 255 });
+    }
+    else
+    {
+        unsigned char d = (unsigned char)(h % 12);
+        DrawRectangle(x, y, tileSize, tileSize,
+                      Color{ (unsigned char)(28 + d), (unsigned char)(28 + d), (unsigned char)(38 + d), 255 });
+    }
+    DrawRectangleLines(x, y, tileSize, tileSize, Color{ 0, 0, 0, 40 });
+}
+
+void TileMap::Draw(const Camera2D& camera) const
+{
+    // CULLING (Шаг 11): вычисляем видимую область в мировых координатах
+    // и рисуем только тайлы, попавшие в кадр — это даёт большую карту без просадки FPS.
+    float halfW = (GetScreenWidth()  * 0.5f) / camera.zoom;
+    float halfH = (GetScreenHeight() * 0.5f) / camera.zoom;
+    float minX = camera.target.x - halfW;
+    float maxX = camera.target.x + halfW;
+    float minY = camera.target.y - halfH;
+    float maxY = camera.target.y + halfH;
+
+    int colStart = (int)(minX / tileSize) - 1;
+    int colEnd   = (int)(maxX / tileSize) + 1;
+    int rowStart = (int)(minY / tileSize) - 1;
+    int rowEnd   = (int)(maxY / tileSize) + 1;
+    if (colStart < 0) colStart = 0;
+    if (rowStart < 0) rowStart = 0;
+    if (colEnd > Cols() - 1) colEnd = Cols() - 1;
+    if (rowEnd > Rows() - 1) rowEnd = Rows() - 1;
+
+    for (int row = rowStart; row <= rowEnd; row++)
+    {
+        for (int col = colStart; col <= colEnd; col++)
         {
             int x = col * tileSize;
             int y = row * tileSize;
-            if (grid[row][col] == 'W')
-                DrawRectangle(x, y, tileSize, tileSize, DARKBROWN);
+            bool wall = (grid[row][col] == 'W');
+            unsigned int h = TileHash(col, row);
+
+            Texture2D tex = wall ? texWall : texFloor;
+            if (hasArt && tex.id != 0)
+            {
+                // Вариативность (Шаг 12): отражаем тайл по флагам хеша,
+                // чтобы одна текстура не выглядела однообразно.
+                float fw = (float)tex.width;
+                float fh = (float)tex.height;
+                Rectangle src = { 0.0f, 0.0f, (h & 1u) ? -fw : fw, (h & 2u) ? -fh : fh };
+                Rectangle dst = { (float)x, (float)y, (float)tileSize, (float)tileSize };
+                DrawTexturePro(tex, src, dst, { 0.0f, 0.0f }, 0.0f, WHITE);
+            }
             else
-                DrawRectangle(x, y, tileSize, tileSize, Color{ 30, 30, 40, 255 });
-            DrawRectangleLines(x, y, tileSize, tileSize, Color{ 0, 0, 0, 40 });
+            {
+                DrawFallbackTile(x, y, tileSize, wall, h);
+            }
+
+            // Декорации рисуем поверх пола (только если есть текстуры).
+            if (!wall && hasArt)
+            {
+                char dch = decor[row][col];
+                Texture2D dt = Texture2D{ 0 };
+                if (dch == 'b')      dt = texBones;
+                else if (dch == 'p') dt = texPuddle;
+                else if (dch == 'g') dt = texGrass;
+                if (dt.id != 0)
+                {
+                    Rectangle src = { 0.0f, 0.0f, (float)dt.width, (float)dt.height };
+                    Rectangle dst = { (float)x, (float)y, (float)tileSize, (float)tileSize };
+                    DrawTexturePro(dt, src, dst, { 0.0f, 0.0f }, 0.0f, WHITE);
+                }
+            }
         }
     }
 }
