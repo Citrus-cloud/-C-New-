@@ -6,6 +6,7 @@
 #include "pickups.h"
 #include "upgrades.h"
 #include "traps.h"
+#include "loot.h"
 
 // Состояния игры
 enum GameState { PLAYING, LEVEL_UP };
@@ -25,6 +26,7 @@ int main()
     ExpOrbs orbs(500);
     Traps traps;
     traps.Generate(map, 16, 777u);
+    LootDrops loot(200);
 
     GameState state = PLAYING;
 
@@ -41,9 +43,10 @@ int main()
         if (state == PLAYING)
         {
             player.Update(deltaTime, map);
-            spawner.Update(deltaTime, player.position, map);
-            weapon.Update(deltaTime, player.position, spawner, orbs);
+            spawner.Update(deltaTime, player, map);
+            weapon.Update(deltaTime, player.position, spawner, orbs, loot);
             orbs.Update(deltaTime, player);
+            loot.Update(deltaTime, player, weapon);
             traps.Update(deltaTime, player);
             camera.target = player.position;
 
@@ -71,6 +74,7 @@ int main()
             BeginMode2D(camera);
                 map.Draw();
                 traps.Draw();
+                loot.Draw();
                 orbs.Draw();
                 spawner.Draw();
                 weapon.Draw();
@@ -78,9 +82,10 @@ int main()
             EndMode2D();
 
             DrawText("WASD / Arrows / Gamepad - move", 10, 40, 20, RAYWHITE);
-            DrawText(TextFormat("HP: %d", player.health), 10, 65, 20, (player.health > 30) ? GREEN : RED);
+            DrawText(TextFormat("HP: %d / %d", player.health, player.maxHealth), 10, 65, 20, (player.health > 30) ? GREEN : RED);
             DrawText(TextFormat("Enemies: %d", spawner.ActiveCount()), 10, 90, 20, RAYWHITE);
             DrawText(TextFormat("Level: %d   XP: %d / %d", player.level, player.xp, player.xpToNext), 10, 115, 20, RAYWHITE);
+            DrawText(TextFormat("Weapon Lv: %d%s", weapon.level, weapon.evolved ? " (EVOLVED)" : ""), 10, 140, 20, weapon.evolved ? GOLD : RAYWHITE);
             DrawFPS(10, 10);
 
             if (state == LEVEL_UP)

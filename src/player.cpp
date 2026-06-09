@@ -2,8 +2,8 @@
 #include <cmath>
 
 Player::Player(Vector2 startPos)
-    : position(startPos), speed(250.0f), health(100),
-      xp(0), level(1), xpToNext(5)
+    : position(startPos), speed(250.0f), health(100), maxHealth(100),
+      hitCooldown(0.0f), xp(0), level(1), xpToNext(5)
 {
 }
 
@@ -24,17 +24,29 @@ bool Player::TryLevelUp()
     return false;
 }
 
-// АНТИ-БАГ: если игрок вдруг оказался внутри стены
-// (спавн, телепорт от врага и т.п.) - выталкиваем в ближайшее свободное место.
+void Player::TakeDamage(int dmg)
+{
+    if (hitCooldown > 0.0f) return;  // ещё неуязвимы после прошлого удара
+    health -= dmg;
+    if (health < 0) health = 0;
+    hitCooldown = 0.5f;
+}
+
+void Player::Heal(int amount)
+{
+    health += amount;
+    if (health > maxHealth) health = maxHealth;
+}
+
 void Player::ResolveStuck(const TileMap& map)
 {
-    if (!map.CheckCollision(GetRect())) return;  // не застряли - ничего не делаем
+    if (!map.CheckCollision(GetRect())) return;
     position = map.FindFreeSpot(position, 20.0f);
 }
 
 void Player::Update(float deltaTime, const TileMap& map)
 {
-    // Сначала гарантируем, что мы не внутри стены
+    if (hitCooldown > 0.0f) hitCooldown -= deltaTime;
     ResolveStuck(map);
 
     Vector2 dir = { 0.0f, 0.0f };
@@ -59,8 +71,6 @@ void Player::Update(float deltaTime, const TileMap& map)
         float dx = dir.x * speed * deltaTime;
         float dy = dir.y * speed * deltaTime;
 
-        // Движение по осям раздельно: врезались - откат только этой оси
-        // (даёт скольжение вдоль стены, без застревания)
         position.x += dx;
         if (map.CheckCollision(GetRect())) position.x -= dx;
 
@@ -71,5 +81,6 @@ void Player::Update(float deltaTime, const TileMap& map)
 
 void Player::Draw() const
 {
-    DrawRectangle((int)(position.x - 20), (int)(position.y - 20), 40, 40, RED);
+    Color c = (hitCooldown > 0.0f) ? Color{ 255, 150, 150, 255 } : RED;
+    DrawRectangle((int)(position.x - 20), (int)(position.y - 20), 40, 40, c);
 }

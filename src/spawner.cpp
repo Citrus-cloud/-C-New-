@@ -1,7 +1,9 @@
 #include "spawner.h"
 #include <cmath>
 
-Spawner::Spawner(int poolSize) : spawnTimer(0.0f), spawnInterval(2.0f)
+Spawner::Spawner(int poolSize)
+    : spawnTimer(0.0f), spawnInterval(2.0f),
+      bossTimer(0.0f), bossInterval(30.0f), elapsed(0.0f)
 {
     enemies.resize(poolSize);
 }
@@ -23,21 +25,51 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
         float angle = (float)i / count * 2.0f * PI;
         float r = 500.0f;
         Vector2 pos = { center.x + cosf(angle) * r, center.y + sinf(angle) * r };
-        pos = map.FindFreeSpot(pos, 16.0f);  // не спавним внутри стены
-        e->Spawn(pos);
+        pos = map.FindFreeSpot(pos, 16.0f);
+
+        // Выбор типа: со временем появляются танки, всегда есть шанс на быстрых
+        EnemyType t = ENEMY_GRUNT;
+        int roll = GetRandomValue(0, 99);
+        if (elapsed > 60.0f && roll < 20) t = ENEMY_TANK;
+        else if (roll < 35) t = ENEMY_FAST;
+
+        e->Spawn(pos, t);
     }
 }
 
-void Spawner::Update(float deltaTime, Vector2 playerPos, const TileMap& map)
+void Spawner::SpawnBoss(Vector2 center, const TileMap& map)
 {
+    Enemy* e = GetInactive();
+    if (!e) return;
+    Vector2 pos = { center.x + 600.0f, center.y };
+    pos = map.FindFreeSpot(pos, 38.0f);
+    e->Spawn(pos, ENEMY_BOSS);
+}
+
+void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
+{
+    elapsed += deltaTime;
+
     spawnTimer += deltaTime;
     if (spawnTimer >= spawnInterval)
     {
         spawnTimer = 0.0f;
-        SpawnWave(playerPos, map);
+        SpawnWave(player.position, map);
     }
+
+    bossTimer += deltaTime;
+    if (bossTimer >= bossInterval)
+    {
+        bossTimer = 0.0f;
+        SpawnBoss(player.position, map);
+    }
+
     for (auto& e : enemies)
-        e.Update(deltaTime, playerPos, map);
+    {
+        e.Update(deltaTime, player.position, map);
+        if (e.active && CheckCollisionRecs(e.GetRect(), player.GetRect()))
+            player.TakeDamage(e.damage);  // урон при касании (с i-frames)
+    }
 }
 
 void Spawner::Draw() const

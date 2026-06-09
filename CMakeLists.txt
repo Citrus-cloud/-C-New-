@@ -24,6 +24,7 @@ add_executable(${PROJECT_NAME}
     src/upgrades.cpp
     src/pathfinding.cpp
     src/traps.cpp
+    src/loot.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} raylib)

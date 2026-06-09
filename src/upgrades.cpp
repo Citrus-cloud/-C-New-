@@ -4,11 +4,15 @@ void ApplyUpgrade(int choice, Player& player, Weapon& weapon)
 {
     switch (choice)
     {
-        case 1: weapon.damage += 5;            break;  // +урон
-        case 2: weapon.fireInterval *= 0.85f;  break;  // +скорострельность
-        case 3: player.speed += 30.0f;         break;  // +скорость
+        case 1: weapon.damage += 5; weapon.level++;            break;  // +урон
+        case 2: weapon.fireInterval *= 0.85f; weapon.level++;  break;  // +скорострельность
+        case 3: player.speed += 30.0f;                         break;  // +скорость
         default: break;
     }
+
+    // Эволюция оружия при достижении 5 уровня
+    if (weapon.level >= 5 && !weapon.evolved)
+        weapon.Evolve();
 }
 
 const char* GetUpgradeText(int choice)

@@ -2,16 +2,17 @@
 
 Projectile::Projectile()
     : position({ 0.0f, 0.0f }), velocity({ 0.0f, 0.0f }),
-      active(false), damage(15), lifetime(0.0f)
+      active(false), damage(15), lifetime(0.0f), pierce(0)
 {
 }
 
-void Projectile::Fire(Vector2 pos, Vector2 vel)
+void Projectile::Fire(Vector2 pos, Vector2 vel, int pierceCount)
 {
     position = pos;
     velocity = vel;
     active = true;
     lifetime = 2.0f;
+    pierce = pierceCount;
 }
 
 void Projectile::Update(float dt)
@@ -20,7 +21,7 @@ void Projectile::Update(float dt)
     position.x += velocity.x * dt;
     position.y += velocity.y * dt;
     lifetime -= dt;
-    if (lifetime <= 0.0f) active = false;  // снаряд истёк - выключаем
+    if (lifetime <= 0.0f) active = false;
 }
 
 void Projectile::Draw() const
