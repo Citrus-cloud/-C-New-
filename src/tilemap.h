@@ -3,16 +3,19 @@
 #include <vector>
 #include <string>
 
-// Простая тайловая карта: сетка из символов, где 'W' - стена, '.' - пол
+// Тайловая карта: 'W' - стена, '.' - пол.
+// Размер карты любой - в будущем расширим до большого открытого мира.
 class TileMap
 {
 public:
-    int tileSize;                   // размер одного тайла в пикселях
-    std::vector<std::string> grid;  // карта по строкам
+    int tileSize;
+    std::vector<std::string> grid;
 
     TileMap();
 
     void Draw() const;
-    bool IsWall(int col, int row) const;          // стена ли тайл (col, row)
-    bool CheckCollision(Rectangle rect) const;    // пересекает ли прямоугольник стену
+    bool IsWall(int col, int row) const;
+    bool CheckCollision(Rectangle rect) const;
+    bool IsFree(Rectangle rect) const;                          // свободно ли место
+    Vector2 FindFreeSpot(Vector2 desired, float halfSize) const; // ближайшее свободное место
 };

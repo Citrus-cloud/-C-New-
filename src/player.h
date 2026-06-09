@@ -2,7 +2,7 @@
 #include "raylib.h"
 #include "tilemap.h"
 
-// Класс игрока
+// Класс игрока (без рывка - простое движение)
 class Player
 {
 public:
@@ -13,14 +13,11 @@ public:
     int level;       // уровень
     int xpToNext;    // сколько опыта до следующего уровня
 
-    Vector2 lastDir;     // последнее направление (для рывка)
-    float dashTimer;     // сколько ещё длится рывок
-    float dashCooldown;  // перезарядка рывка
-
     Player(Vector2 startPos);
 
     void Update(float deltaTime, const TileMap& map);
     void Draw() const;
     Rectangle GetRect() const;
-    bool TryLevelUp();   // если набрали опыт - повышаем уровень
+    bool TryLevelUp();
+    void ResolveStuck(const TileMap& map);  // вытолкнуть из стены, если застряли
 };

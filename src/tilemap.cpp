@@ -1,8 +1,8 @@
 #include "tilemap.h"
+#include <cmath>
 
 TileMap::TileMap() : tileSize(64)
 {
-    // 'W' - стена, '.' - пол. Каждая строка - ряд тайлов.
     grid = {
         "WWWWWWWWWWWWWWWWWWWW",
         "W..................W",
@@ -23,7 +23,6 @@ TileMap::TileMap() : tileSize(64)
 
 bool TileMap::IsWall(int col, int row) const
 {
-    // Всё, что за пределами карты, считаем стеной
     if (row < 0 || row >= (int)grid.size()) return true;
     if (col < 0 || col >= (int)grid[row].size()) return true;
     return grid[row][col] == 'W';
@@ -48,7 +47,6 @@ void TileMap::Draw() const
 
 bool TileMap::CheckCollision(Rectangle rect) const
 {
-    // Смотрим только тайлы, которые может задевать прямоугольник
     int left   = (int)(rect.x / tileSize);
     int right  = (int)((rect.x + rect.width) / tileSize);
     int top    = (int)(rect.y / tileSize);
@@ -65,4 +63,34 @@ bool TileMap::CheckCollision(Rectangle rect) const
                 if (CheckCollisionRecs(rect, tile)) return true;
             }
     return false;
+}
+
+bool TileMap::IsFree(Rectangle rect) const
+{
+    return !CheckCollision(rect);
+}
+
+// Ищем ближайшую свободную точку по расширяющимся кольцам.
+// Гарантирует, что объект никогда не останется внутри стены.
+Vector2 TileMap::FindFreeSpot(Vector2 desired, float halfSize) const
+{
+    Rectangle r0 = { desired.x - halfSize, desired.y - halfSize, halfSize * 2.0f, halfSize * 2.0f };
+    if (IsFree(r0)) return desired;
+
+    int step = (int)halfSize;
+    if (step < 1) step = 1;
+    for (int radius = step; radius <= 4000; radius += step)
+    {
+        for (int angle = 0; angle < 360; angle += 15)
+        {
+            float rad = angle * DEG2RAD;
+            Vector2 test = {
+                desired.x + cosf(rad) * radius,
+                desired.y + sinf(rad) * radius
+            };
+            Rectangle tr = { test.x - halfSize, test.y - halfSize, halfSize * 2.0f, halfSize * 2.0f };
+            if (IsFree(tr)) return test;
+        }
+    }
+    return desired;  // на крайний случай
 }

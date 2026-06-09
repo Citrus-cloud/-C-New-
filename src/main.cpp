@@ -43,7 +43,6 @@ int main()
             orbs.Update(deltaTime, player);
             camera.target = player.position;
 
-            // Набрали опыт - пауза и экран апгрейда
             if (player.TryLevelUp())
                 state = LEVEL_UP;
         }
@@ -57,7 +56,6 @@ int main()
             if (choice != 0)
             {
                 ApplyUpgrade(choice, player, weapon);
-                // Если накопилось сразу несколько уровней - показываем снова
                 if (!player.TryLevelUp())
                     state = PLAYING;
             }
@@ -74,16 +72,11 @@ int main()
                 player.Draw();
             EndMode2D();
 
-            DrawText("WASD - move, Space - dash", 10, 40, 20, RAYWHITE);
+            DrawText("WASD / Arrows / Gamepad - move", 10, 40, 20, RAYWHITE);
             DrawText(TextFormat("Enemies: %d", spawner.ActiveCount()), 10, 65, 20, RAYWHITE);
             DrawText(TextFormat("Level: %d   XP: %d / %d", player.level, player.xp, player.xpToNext), 10, 90, 20, RAYWHITE);
-            if (player.dashCooldown <= 0.0f)
-                DrawText("DASH ready", 10, 115, 20, GREEN);
-            else
-                DrawText(TextFormat("DASH: %.1f", player.dashCooldown), 10, 115, 20, GRAY);
             DrawFPS(10, 10);
 
-            // Экран выбора апгрейда поверх всего
             if (state == LEVEL_UP)
             {
                 DrawRectangle(0, 0, screenWidth, screenHeight, Color{ 0, 0, 0, 160 });

@@ -3,8 +3,7 @@
 
 Player::Player(Vector2 startPos)
     : position(startPos), speed(250.0f), health(100),
-      xp(0), level(1), xpToNext(5),
-      lastDir({ 1.0f, 0.0f }), dashTimer(0.0f), dashCooldown(0.0f)
+      xp(0), level(1), xpToNext(5)
 {
 }
 
@@ -19,17 +18,24 @@ bool Player::TryLevelUp()
     {
         xp -= xpToNext;
         level += 1;
-        xpToNext = (int)(xpToNext * 1.5f);  // каждый уровень дороже
+        xpToNext = (int)(xpToNext * 1.5f);
         return true;
     }
     return false;
 }
 
+// АНТИ-БАГ: если игрок вдруг оказался внутри стены
+// (спавн, телепорт от врага и т.п.) - выталкиваем в ближайшее свободное место.
+void Player::ResolveStuck(const TileMap& map)
+{
+    if (!map.CheckCollision(GetRect())) return;  // не застряли - ничего не делаем
+    position = map.FindFreeSpot(position, 20.0f);
+}
+
 void Player::Update(float deltaTime, const TileMap& map)
 {
-    // Таймеры рывка
-    if (dashCooldown > 0.0f) dashCooldown -= deltaTime;
-    if (dashTimer > 0.0f)    dashTimer -= deltaTime;
+    // Сначала гарантируем, что мы не внутри стены
+    ResolveStuck(map);
 
     Vector2 dir = { 0.0f, 0.0f };
     if (IsKeyDown(KEY_W) || IsKeyDown(KEY_UP))    dir.y -= 1.0f;
@@ -50,44 +56,20 @@ void Player::Update(float deltaTime, const TileMap& map)
     {
         dir.x /= len;
         dir.y /= len;
-        lastDir = dir;  // запоминаем направление движения
+        float dx = dir.x * speed * deltaTime;
+        float dy = dir.y * speed * deltaTime;
+
+        // Движение по осям раздельно: врезались - откат только этой оси
+        // (даёт скольжение вдоль стены, без застревания)
+        position.x += dx;
+        if (map.CheckCollision(GetRect())) position.x -= dx;
+
+        position.y += dy;
+        if (map.CheckCollision(GetRect())) position.y -= dy;
     }
-
-    // Старт рывка: Space / Shift / кнопка геймпада, если перезарядка готова
-    bool dashPressed = IsKeyPressed(KEY_SPACE) || IsKeyPressed(KEY_LEFT_SHIFT) ||
-        (IsGamepadAvailable(0) && IsGamepadButtonPressed(0, GAMEPAD_BUTTON_RIGHT_FACE_DOWN));
-    if (dashPressed && dashCooldown <= 0.0f)
-    {
-        dashTimer = 0.15f;
-        dashCooldown = 1.5f;
-    }
-
-    // Выбор скорости: во время рывка летим быстро по lastDir
-    Vector2 moveDir = { 0.0f, 0.0f };
-    float moveSpeed = speed;
-    if (dashTimer > 0.0f)
-    {
-        moveDir = lastDir;
-        moveSpeed = 900.0f;
-    }
-    else if (len > 0.0f)
-    {
-        moveDir = dir;
-    }
-
-    float dx = moveDir.x * moveSpeed * deltaTime;
-    float dy = moveDir.y * moveSpeed * deltaTime;
-
-    position.x += dx;
-    if (map.CheckCollision(GetRect())) position.x -= dx;
-
-    position.y += dy;
-    if (map.CheckCollision(GetRect())) position.y -= dy;
 }
 
 void Player::Draw() const
 {
-    // Во время рывка подсвечиваем игрока
-    Color c = (dashTimer > 0.0f) ? SKYBLUE : RED;
-    DrawRectangle((int)(position.x - 20), (int)(position.y - 20), 40, 40, c);
+    DrawRectangle((int)(position.x - 20), (int)(position.y - 20), 40, 40, RED);
 }
