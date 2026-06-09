@@ -14,5 +14,11 @@ FetchContent_Declare(
 set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(raylib)
 
-add_executable(${PROJECT_NAME} src/main.cpp src/player.cpp src/tilemap.cpp)
+add_executable(${PROJECT_NAME}
+    src/main.cpp
+    src/player.cpp
+    src/tilemap.cpp
+    src/enemy.cpp
+    src/spawner.cpp
+)
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
