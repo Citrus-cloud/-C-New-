@@ -2,6 +2,48 @@
 #include "effects.h"
 #include <cmath>
 
+// Общая функция урона по врагу: эффекты + награда при смерти.
+// Используется и оружием, и способностями игрока (Фаза 5).
+void DamageEnemy(Enemy& e, int dmg, ExpOrbs& orbs, LootDrops& loot, Effects& effects)
+{
+    if (!e.active || e.dying) return;
+
+    e.health -= dmg;
+
+    // Эффекты попадания (Шаг 15, 18).
+    effects.SpawnSparks(e.position, Color{ 255, 200, 80, 255 }, 5);
+    effects.SpawnDamageNumber(e.position, dmg, e.type == ENEMY_BOSS);
+
+    if (e.health <= 0)
+    {
+        e.Kill();
+
+        // Эффекты смерти (Шаг 16, 17).
+        bool boss = (e.type == ENEMY_BOSS);
+        effects.SpawnBlood(e.position, boss ? 40 : 14);
+        effects.SpawnExplosion(e.position, boss ? 2.2f : 1.0f);
+        if (boss) effects.Shake(11.0f, 0.45f);
+
+        for (int k = 0; k < e.xpValue; k++)
+            orbs.Spawn(e.position);
+
+        int dropRoll = GetRandomValue(0, 99);
+        if (e.type == ENEMY_BOSS)
+        {
+            loot.Spawn(e.position, LOOT_HEALTH);
+            loot.Spawn({ e.position.x + 30.0f, e.position.y }, LOOT_POWER);
+        }
+        else if (e.type == ENEMY_TANK && dropRoll < 35)
+        {
+            loot.Spawn(e.position, (dropRoll < 17) ? LOOT_HEALTH : LOOT_POWER);
+        }
+        else if (dropRoll < 4)
+        {
+            loot.Spawn(e.position, LOOT_HEALTH);
+        }
+    }
+}
+
 Weapon::Weapon(int maxProjectiles)
     : fireTimer(0.0f), fireInterval(0.5f), projectileSpeed(500.0f), damage(15),
       level(1), projectileCount(1), pierce(0), evolved(false), firedThisFrame(false)
@@ -22,7 +64,7 @@ Enemy* Weapon::FindNearestEnemy(Vector2 from, Spawner& spawner)
     float bestDist = 1e9f;
     for (Enemy& e : spawner.enemies)
     {
-        if (!e.active || e.dying) continue;  // умирающих не берём в цели
+        if (!e.active || e.dying) continue;
         float dx = e.position.x - from.x;
         float dy = e.position.y - from.y;
         float dist = sqrtf(dx * dx + dy * dy);
@@ -78,47 +120,12 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
         if (!p.active) continue;
         for (Enemy& e : spawner.enemies)
         {
-            if (!e.active || e.dying) continue;  // умирающих пропускаем
+            if (!e.active || e.dying) continue;
             if (CheckCollisionRecs(p.GetRect(), e.GetRect()))
             {
-                e.health -= p.damage;
-
-                // Эффекты попадания (Шаг 15, 18): искры + всплывающее число урона.
-                effects.SpawnSparks(e.position, Color{ 255, 200, 80, 255 }, 5);
-                effects.SpawnDamageNumber(e.position, p.damage, e.type == ENEMY_BOSS);
-
+                DamageEnemy(e, p.damage, orbs, loot, effects);
                 if (p.pierce > 0) p.pierce--;
                 else p.active = false;
-
-                if (e.health <= 0)
-                {
-                    e.Kill();  // запускаем анимацию смерти (или сразу убираем)
-
-                    // Эффекты смерти (Шаг 16, 17): кровь, взрыв, для босса — тряска.
-                    bool boss = (e.type == ENEMY_BOSS);
-                    effects.SpawnBlood(e.position, boss ? 40 : 14);
-                    effects.SpawnExplosion(e.position, boss ? 2.2f : 1.0f);
-                    if (boss) effects.Shake(11.0f, 0.45f);
-
-                    for (int k = 0; k < e.xpValue; k++)
-                        orbs.Spawn(e.position);
-
-                    int dropRoll = GetRandomValue(0, 99);
-                    if (e.type == ENEMY_BOSS)
-                    {
-                        loot.Spawn(e.position, LOOT_HEALTH);
-                        loot.Spawn({ e.position.x + 30.0f, e.position.y }, LOOT_POWER);
-                    }
-                    else if (e.type == ENEMY_TANK && dropRoll < 35)
-                    {
-                        loot.Spawn(e.position, (dropRoll < 17) ? LOOT_HEALTH : LOOT_POWER);
-                    }
-                    else if (dropRoll < 4)
-                    {
-                        loot.Spawn(e.position, LOOT_HEALTH);
-                    }
-                }
-
                 if (!p.active) break;
             }
         }

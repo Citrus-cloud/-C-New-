@@ -12,8 +12,10 @@
 #include "savegame.h"
 #include "textures.h"
 #include "effects.h"
+#include "abilities.h"
+#include "characters.h"
+#include "bosses.h"
 
-// Состояния игры
 enum GameState { MENU, PLAYING, LEVEL_UP, PAUSED, GAME_OVER };
 
 int main()
@@ -29,7 +31,6 @@ int main()
     HUD hud;
     hud.Init(screenWidth, screenHeight);
 
-    // Менеджер текстур: грузит и кэширует спрайты (PNG). Один на всю игру.
     TextureManager textures;
 
     GameSave save = LoadGameSave();
@@ -47,16 +48,17 @@ int main()
     traps.Generate(map, 16, 777u);
     LootDrops loot(200);
 
-    // Система эффектов (Фаза 4): частицы, тряска, VFX, числа урона, затемнения.
     Effects effects;
     effects.LoadArt(textures);
+
+    // Способности игрока (Шаг 23) и выбранный класс (Шаг 24).
+    Abilities abilities;
+    int selectedCharacter = CHAR_WARRIOR;
 
     float survivalTime = 0.0f;
     float subtitleTimer = 0.0f;
     int subtitleLine = -1;
     bool newRecord = false;
-    const char* bossSpeakers[2] = { "Королева пауков", "Чёрный рыцарь" };
-    const char* bossLines[2] = { "Ты будешь кормом моих детей.", "Жалкая пародия." };
 
     GameState state = MENU;
 
@@ -65,7 +67,7 @@ int main()
     camera.rotation = 0.0f;
     camera.zoom = 1.0f;
     camera.target = player.position;
-    Vector2 baseCamOffset = camera.offset;  // базовый offset (к нему прибавляем тряску)
+    Vector2 baseCamOffset = camera.offset;
 
     auto startNewGame = [&]() {
         map.Generate(96, 72, (unsigned)GetRandomValue(1, 1000000));
@@ -80,6 +82,18 @@ int main()
         traps.Generate(map, 16, (unsigned)GetRandomValue(1, 1000000));
         loot = LootDrops(200);
         effects.Clear();
+        abilities.Reset();
+        ResetUpgrades();
+
+        // Применяем выбранный класс (Шаг 24).
+        const CharacterClass& cc = GetCharacter(selectedCharacter);
+        player.maxHealth += cc.bonusHealth;
+        player.health = player.maxHealth;
+        player.speed *= cc.moveSpeedMul;
+        weapon.fireInterval *= cc.fireRateMul;
+        weapon.damage += cc.bonusDamage;
+        if (cc.startWithOrbit) abilities.UnlockOrbit();
+
         survivalTime = 0.0f;
         subtitleTimer = 0.0f;
         subtitleLine = -1;
@@ -91,11 +105,14 @@ int main()
     {
         float dt = GetFrameTime();
         audio.Update();
-        effects.Update(dt);   // эффекты живут во всех состояниях
+        effects.Update(dt);
 
         if (state == MENU)
         {
             audio.PlayMenuMusic();
+
+            if (IsKeyPressed(KEY_TAB))
+                selectedCharacter = (selectedCharacter + 1) % CHAR_COUNT;
 
             if (IsKeyPressed(KEY_LEFT))
             {
@@ -137,6 +154,7 @@ int main()
                 spawner.bossEventLine = -1;
             }
             weapon.Update(dt, player.position, spawner, orbs, loot, effects);
+            abilities.Update(dt, player.position, spawner, orbs, loot, effects);
             if (weapon.firedThisFrame) audio.Shoot();
             orbs.Update(dt, player);
             if (orbs.collectedThisFrame > 0) audio.Pickup();
@@ -157,13 +175,13 @@ int main()
                 if (player.level > save.bestLevel) { save.bestLevel = player.level; newRecord = true; }
                 if (newRecord) SaveGameSave(save);
                 effects.Shake(14.0f, 0.6f);
-                effects.SetFade(0.65f, 1.5f);   // плавное затемнение при смерти (Шаг 19)
+                effects.SetFade(0.65f, 1.5f);
             }
             else if (player.TryLevelUp())
             {
                 state = LEVEL_UP;
                 audio.LevelUp();
-                effects.SpawnMagicCircle(player.position, 1.6f);  // VFX левел-апа (Шаг 17)
+                effects.SpawnMagicCircle(player.position, 1.6f);
             }
 
             if (IsKeyPressed(KEY_ESCAPE)) state = PAUSED;
@@ -176,7 +194,7 @@ int main()
             if (IsKeyPressed(KEY_THREE)) choice = 3;
             if (choice != 0)
             {
-                ApplyUpgrade(choice, player, weapon);
+                ApplyUpgrade(choice, player, weapon, abilities);
                 if (!player.TryLevelUp()) state = PLAYING;
             }
         }
@@ -200,6 +218,9 @@ int main()
             if (state == MENU)
             {
                 hud.DrawMenu(save.bestTime, save.bestLevel, save.volume);
+                const CharacterClass& cc = GetCharacter(selectedCharacter);
+                hud.Text(TextFormat("Класс: %s — %s   (TAB — сменить)", cc.name, cc.description),
+                         screenWidth / 2.0f - 300.0f, screenHeight - 70.0f, 24.0f, RAYWHITE);
             }
             else
             {
@@ -211,17 +232,19 @@ int main()
                     spawner.Draw();
                     weapon.Draw();
                     player.Draw();
-                    effects.DrawWorld();   // частицы, VFX, числа урона (в мире)
+                    abilities.Draw(player.position);
+                    effects.DrawWorld();
                 EndMode2D();
 
-                effects.DrawScreen(screenWidth, screenHeight);  // вспышка + затемнение
+                effects.DrawScreen(screenWidth, screenHeight);
 
                 hud.DrawGame(player, spawner, weapon, survivalTime);
 
                 if (subtitleTimer > 0.0f && subtitleLine >= 0)
                 {
                     float alpha = (subtitleTimer < 1.0f) ? subtitleTimer : 1.0f;
-                    hud.DrawSubtitle(bossSpeakers[subtitleLine], bossLines[subtitleLine], alpha);
+                    const BossDef& bd = GetBossDef(subtitleLine);
+                    hud.DrawSubtitle(bd.name, bd.line, alpha);
                 }
 
                 if (state == LEVEL_UP)

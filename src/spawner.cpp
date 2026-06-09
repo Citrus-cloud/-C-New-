@@ -1,16 +1,16 @@
 #include "spawner.h"
 #include "textures.h"
+#include "bosses.h"
 #include <cmath>
 
 Spawner::Spawner(int poolSize)
     : spawnTimer(0.0f), spawnInterval(2.0f),
-      bossTimer(0.0f), bossInterval(30.0f), elapsed(0.0f), bossEventLine(-1)
+      bossTimer(0.0f), bossInterval(30.0f), elapsed(0.0f),
+      bossEventLine(-1), bossSpawnCount(0)
 {
     enemies.resize(poolSize);
 }
 
-// Загружает прототипы анимаций врагов и боссов (Шаги 6-8).
-// Если файла нет — анимация остаётся пустой, и враг рисуется квадратом.
 void Spawner::LoadArt(TextureManager& tex)
 {
     if (tex.IsReal("assets/sprites/enemy_grunt.png"))
@@ -21,13 +21,16 @@ void Spawner::LoadArt(TextureManager& tex)
         artTankWalk = Animation(tex.Get("assets/sprites/enemy_tank.png"), 4, 6.0f, true);
     if (tex.IsReal("assets/sprites/boss.png"))
         artBossWalk = Animation(tex.Get("assets/sprites/boss.png"), 6, 8.0f, true);
+    if (tex.IsReal("assets/sprites/boss_spider.png"))
+        artSpiderWalk = Animation(tex.Get("assets/sprites/boss_spider.png"), 6, 8.0f, true);
+    if (tex.IsReal("assets/sprites/boss_knight.png"))
+        artKnightWalk = Animation(tex.Get("assets/sprites/boss_knight.png"), 6, 8.0f, true);
     if (tex.IsReal("assets/sprites/enemy_death.png"))
         artEnemyDeath = Animation(tex.Get("assets/sprites/enemy_death.png"), 5, 12.0f, false);
     if (tex.IsReal("assets/sprites/boss_death.png"))
         artBossDeath = Animation(tex.Get("assets/sprites/boss_death.png"), 6, 10.0f, false);
 }
 
-// Назначает врагу анимации по типу (копия прототипа, таймер с нуля).
 void Spawner::AssignArt(Enemy* e, EnemyType t)
 {
     switch (t)
@@ -66,7 +69,7 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
         else if (roll < 35) t = ENEMY_FAST;
 
         e->Spawn(pos, t);
-        AssignArt(e, t);  // выдаём спрайты под тип
+        AssignArt(e, t);
     }
 }
 
@@ -76,9 +79,21 @@ void Spawner::SpawnBoss(Vector2 center, const TileMap& map)
     if (!e) return;
     Vector2 pos = { center.x + 600.0f, center.y };
     pos = map.FindFreeSpot(pos, 38.0f);
+
+    int bossId = bossSpawnCount % BOSS_COUNT;   // чередуем боссов
+    bossSpawnCount++;
+
     e->Spawn(pos, ENEMY_BOSS);
+    const BossDef& def = GetBossDef(bossId);
+    e->ApplyBoss(def);
+    e->bossId = bossId;
+
     AssignArt(e, ENEMY_BOSS);
-    bossEventLine = GetRandomValue(0, 1);  // выбираем реплику босса
+    // Если есть отдельный спрайт босса — используем его.
+    if (bossId == BOSS_SPIDER_QUEEN && artSpiderWalk.Valid()) e->walkAnim = artSpiderWalk;
+    else if (bossId == BOSS_BLACK_KNIGHT && artKnightWalk.Valid()) e->walkAnim = artKnightWalk;
+
+    bossEventLine = def.voiceLine;
 }
 
 void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
@@ -102,7 +117,27 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
     for (auto& e : enemies)
     {
         e.Update(deltaTime, player.position, map);
-        // Умирающие враги больше не наносят урон.
+
+        // Призыв миньонов (Королева пауков, Шаг 21).
+        if (e.active && !e.dying && e.canSummon)
+        {
+            e.summonTimer -= deltaTime;
+            if (e.summonTimer <= 0.0f)
+            {
+                e.summonTimer = GetBossDef(e.bossId).summonInterval;
+                for (int s = 0; s < 3; s++)
+                {
+                    Enemy* m = GetInactive();
+                    if (!m) break;
+                    float ang = (float)s / 3.0f * 2.0f * PI;
+                    Vector2 mp = { e.position.x + cosf(ang) * 60.0f, e.position.y + sinf(ang) * 60.0f };
+                    mp = map.FindFreeSpot(mp, 12.0f);
+                    m->Spawn(mp, ENEMY_FAST);
+                    AssignArt(m, ENEMY_FAST);
+                }
+            }
+        }
+
         if (e.active && !e.dying && CheckCollisionRecs(e.GetRect(), player.GetRect()))
             player.TakeDamage(e.damage);
     }

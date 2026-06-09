@@ -7,7 +7,8 @@ Enemy::Enemy()
       type(ENEMY_GRUNT), size(16.0f), color(PURPLE), damage(5), xpValue(1),
       facingLeft(false), dying(false), deathTimer(0.0f),
       pathIndex(0), repathTimer(0.0f),
-      dashing(false), dashTimer(0.0f), dashCooldown(3.0f), dashDir({ 0.0f, 0.0f })
+      dashing(false), dashTimer(0.0f), dashCooldown(3.0f), dashDir({ 0.0f, 0.0f }),
+      bossId(-1), canDash(false), canSummon(false), summonTimer(0.0f)
 {
 }
 
@@ -25,6 +26,12 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
     dashing = false;
     dashTimer = 0.0f;
     dashDir = { 0.0f, 0.0f };
+
+    // По умолчанию обычный враг (не босс).
+    bossId = -1;
+    canDash = false;
+    canSummon = false;
+    summonTimer = 0.0f;
 
     switch (t)
     {
@@ -44,7 +51,23 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
             break;
     }
 
-    maxHealth = health; // запоминаем полное здоровье для полоски
+    maxHealth = health;
+}
+
+// Применяет характеристики и механики конкретного босса из таблицы (Шаг 20-22).
+void Enemy::ApplyBoss(const BossDef& def)
+{
+    health = def.health;
+    maxHealth = def.health;
+    speed = def.speed;
+    size = def.size;
+    damage = def.damage;
+    xpValue = def.xpValue;
+    color = def.color;
+    canDash = def.canDash;
+    canSummon = def.canSummon;
+    summonTimer = def.summonInterval;
+    if (canDash) dashCooldown = 2.5f;
 }
 
 Rectangle Enemy::GetRect() const
@@ -52,8 +75,6 @@ Rectangle Enemy::GetRect() const
     return { position.x - size, position.y - size, size * 2.0f, size * 2.0f };
 }
 
-// Начинает смерть врага. Если есть спрайт смерти — запускаем анимацию,
-// иначе убираем сразу (поведение v0.1).
 void Enemy::Kill()
 {
     health = 0;
@@ -70,7 +91,6 @@ void Enemy::Kill()
     }
 }
 
-// Движение к точке с учётом стен (раздельно по осям)
 static void MoveToward(Vector2& pos, Vector2 target, float dist, float halfSize, const TileMap& map)
 {
     float dx = target.x - pos.x, dy = target.y - pos.y;
@@ -89,7 +109,6 @@ void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map)
 {
     if (!active) return;
 
-    // СМЕРТЬ: проигрываем анимацию и затем убираем из пула.
     if (dying)
     {
         deathAnim.Update(deltaTime);
@@ -98,14 +117,12 @@ void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map)
         return;
     }
 
-    // Направление взгляда — в сторону игрока (для отражения спрайта).
     facingLeft = (playerPos.x < position.x);
 
-    // Анимация ходьбы идёт постоянно, пока враг жив.
     walkAnim.Update(deltaTime);
 
-    // РЫВОК БОССОВ: периодический рывок в сторону игрока
-    if (type == ENEMY_BOSS)
+    // РЫВОК: только у боссов с механикой рывка (Чёрный рыцарь).
+    if (canDash)
     {
         if (dashing)
         {
@@ -162,8 +179,6 @@ void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map)
     }
 }
 
-// Рисует полоску здоровья над врагом.
-// Обычные враги показывают её только при повреждении; боссы — всегда.
 void Enemy::DrawHealthBar() const
 {
     if (maxHealth <= 0) return;
@@ -188,7 +203,6 @@ void Enemy::Draw() const
 {
     if (!active) return;
 
-    // Анимация смерти.
     if (dying)
     {
         if (deathAnim.Valid())
@@ -203,17 +217,14 @@ void Enemy::Draw() const
 
     if (walkAnim.Valid())
     {
-        // Размер спрайта привязан к размеру врага, независимо от разрешения PNG.
         float target = size * 2.6f;
         float h = (float)walkAnim.FrameHeight();
         float sc = (h > 0.0f) ? target / h : 1.0f;
-        // Во время рывка босс подсвечивается (телеграф).
         Color tint = dashing ? Color{ 255, 180, 120, 255 } : WHITE;
         walkAnim.Draw(position, sc, facingLeft, tint);
     }
     else
     {
-        // Fallback к v0.1: цветные прямоугольники.
         Color c = dashing ? ORANGE : color;
         DrawRectangle((int)(position.x - size), (int)(position.y - size),
                       (int)(size * 2.0f), (int)(size * 2.0f), c);

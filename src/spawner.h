@@ -6,7 +6,6 @@
 #include "animation.h"
 #include <vector>
 
-// Предварительное объявление менеджера текстур.
 class TextureManager;
 
 class Spawner
@@ -18,10 +17,11 @@ public:
     float bossTimer;
     float bossInterval;
     float elapsed;
-    int bossEventLine;  // -1 = ничего; иначе номер реплики появившегося босса
+    int bossEventLine;
+    int bossSpawnCount;   // сколько боссов уже вызвано (для чередования)
 
     Spawner(int poolSize);
-    void LoadArt(TextureManager& textures);  // загрузить спрайты врагов и боссов
+    void LoadArt(TextureManager& textures);
     Enemy* GetInactive();
     void SpawnWave(Vector2 center, const TileMap& map);
     void SpawnBoss(Vector2 center, const TileMap& map);
@@ -30,9 +30,8 @@ public:
     int ActiveCount() const;
 
 private:
-    // Прототипы анимаций — копируются в каждого врага при спавне.
     Animation artGruntWalk, artFastWalk, artTankWalk, artBossWalk;
+    Animation artSpiderWalk, artKnightWalk;   // спрайты конкретных боссов
     Animation artEnemyDeath, artBossDeath;
-    // Назначает врагу нужные анимации по его типу.
     void AssignArt(Enemy* e, EnemyType t);
 };
