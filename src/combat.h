@@ -13,6 +13,7 @@ public:
     float fireTimer;
     float fireInterval;     // раз в сколько секунд выстрел
     float projectileSpeed;
+    int damage;             // урон снаряда (растёт от апгрейдов)
 
     Weapon(int maxProjectiles);
 

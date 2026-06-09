@@ -2,7 +2,7 @@
 #include <cmath>
 
 Weapon::Weapon(int maxProjectiles)
-    : fireTimer(0.0f), fireInterval(0.5f), projectileSpeed(500.0f)
+    : fireTimer(0.0f), fireInterval(0.5f), projectileSpeed(500.0f), damage(15)
 {
     pool.resize(maxProjectiles);
 }
@@ -14,7 +14,6 @@ Projectile* Weapon::GetInactive()
     return nullptr;
 }
 
-// Ищем ближайшего активного врага
 Enemy* Weapon::FindNearestEnemy(Vector2 from, Spawner& spawner)
 {
     Enemy* nearest = nullptr;
@@ -32,7 +31,6 @@ Enemy* Weapon::FindNearestEnemy(Vector2 from, Spawner& spawner)
 
 void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs)
 {
-    // 1) Автоатака по таймеру в ближайшего врага
     fireTimer += dt;
     if (fireTimer >= fireInterval)
     {
@@ -48,15 +46,14 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
                 if (len > 0.01f) { dir.x /= len; dir.y /= len; }
                 Vector2 vel = { dir.x * projectileSpeed, dir.y * projectileSpeed };
                 p->Fire(playerPos, vel);
+                p->damage = damage;  // урон берём из оружия
             }
         }
     }
 
-    // 2) Двигаем снаряды
     for (Projectile& p : pool)
         p.Update(dt);
 
-    // 3) Коллизии "снаряд <-> враг"
     for (Projectile& p : pool)
     {
         if (!p.active) continue;
@@ -70,9 +67,9 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
                 if (e.health <= 0)
                 {
                     e.active = false;
-                    orbs.Spawn(e.position);  // выпал опыт
+                    orbs.Spawn(e.position);
                 }
-                break;  // снаряд исчез, дальше не проверяем
+                break;
             }
         }
     }

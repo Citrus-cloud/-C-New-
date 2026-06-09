@@ -23,5 +23,6 @@ add_executable(${PROJECT_NAME}
     src/projectile.cpp
     src/combat.cpp
     src/pickups.cpp
+    src/upgrades.cpp
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib)

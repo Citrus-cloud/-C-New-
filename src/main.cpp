@@ -4,6 +4,10 @@
 #include "spawner.h"
 #include "combat.h"
 #include "pickups.h"
+#include "upgrades.h"
+
+// Состояния игры
+enum GameState { PLAYING, LEVEL_UP };
 
 int main()
 {
@@ -15,9 +19,11 @@ int main()
 
     TileMap map;
     Player player({ 224.0f, 160.0f });
-    Spawner spawner(200);   // пул врагов
-    Weapon weapon(300);     // пул снарядов
-    ExpOrbs orbs(500);      // пул сфер опыта
+    Spawner spawner(200);
+    Weapon weapon(300);
+    ExpOrbs orbs(500);
+
+    GameState state = PLAYING;
 
     Camera2D camera = { 0 };
     camera.target = player.position;
@@ -29,11 +35,33 @@ int main()
     {
         float deltaTime = GetFrameTime();
 
-        player.Update(deltaTime, map);
-        spawner.Update(deltaTime, player.position);
-        weapon.Update(deltaTime, player.position, spawner, orbs);
-        orbs.Update(deltaTime, player);
-        camera.target = player.position;
+        if (state == PLAYING)
+        {
+            player.Update(deltaTime, map);
+            spawner.Update(deltaTime, player.position);
+            weapon.Update(deltaTime, player.position, spawner, orbs);
+            orbs.Update(deltaTime, player);
+            camera.target = player.position;
+
+            // Набрали опыт - пауза и экран апгрейда
+            if (player.TryLevelUp())
+                state = LEVEL_UP;
+        }
+        else if (state == LEVEL_UP)
+        {
+            int choice = 0;
+            if (IsKeyPressed(KEY_ONE))   choice = 1;
+            if (IsKeyPressed(KEY_TWO))   choice = 2;
+            if (IsKeyPressed(KEY_THREE)) choice = 3;
+
+            if (choice != 0)
+            {
+                ApplyUpgrade(choice, player, weapon);
+                // Если накопилось сразу несколько уровней - показываем снова
+                if (!player.TryLevelUp())
+                    state = PLAYING;
+            }
+        }
 
         BeginDrawing();
             ClearBackground(BLACK);
@@ -46,10 +74,25 @@ int main()
                 player.Draw();
             EndMode2D();
 
-            DrawText("WASD / Arrows / Gamepad - move", 10, 40, 20, RAYWHITE);
+            DrawText("WASD - move, Space - dash", 10, 40, 20, RAYWHITE);
             DrawText(TextFormat("Enemies: %d", spawner.ActiveCount()), 10, 65, 20, RAYWHITE);
-            DrawText(TextFormat("XP: %d", player.xp), 10, 90, 20, RAYWHITE);
+            DrawText(TextFormat("Level: %d   XP: %d / %d", player.level, player.xp, player.xpToNext), 10, 90, 20, RAYWHITE);
+            if (player.dashCooldown <= 0.0f)
+                DrawText("DASH ready", 10, 115, 20, GREEN);
+            else
+                DrawText(TextFormat("DASH: %.1f", player.dashCooldown), 10, 115, 20, GRAY);
             DrawFPS(10, 10);
+
+            // Экран выбора апгрейда поверх всего
+            if (state == LEVEL_UP)
+            {
+                DrawRectangle(0, 0, screenWidth, screenHeight, Color{ 0, 0, 0, 160 });
+                DrawText("LEVEL UP!", screenWidth / 2 - 110, 220, 50, YELLOW);
+                DrawText("Vyberi uluchshenie (1 / 2 / 3):", screenWidth / 2 - 220, 300, 26, RAYWHITE);
+                DrawText(GetUpgradeText(1), screenWidth / 2 - 200, 360, 24, RAYWHITE);
+                DrawText(GetUpgradeText(2), screenWidth / 2 - 200, 400, 24, RAYWHITE);
+                DrawText(GetUpgradeText(3), screenWidth / 2 - 200, 440, 24, RAYWHITE);
+            }
         EndDrawing();
     }
 
