@@ -1,15 +1,22 @@
 #include "spawner.h"
 #include "textures.h"
 #include "bosses.h"
-#include "tuning.h"   // все числовые параметры спавна берём отсюда (Фаза 1)
+#include "tuning.h"      // все числовые параметры спавна берём отсюда (Фаза 1)
+#include "telegraph.h"  // система телеграфов (Фаза 2)
 #include <cmath>
 
 Spawner::Spawner(int poolSize)
     : spawnTimer(0.0f), spawnInterval(Tuning::kSpawnBaseInterval),
       bossTimer(0.0f), bossInterval(Tuning::kBossInterval), elapsed(0.0f),
-      bossEventLine(-1), bossSpawnCount(0)
+      bossEventLine(-1), bossSpawnCount(0), telegraphTimer(0.0f),
+      telegraphs(nullptr)
 {
     enemies.resize(poolSize);
+}
+
+void Spawner::SetTelegraphs(TelegraphSystem* t)
+{
+    telegraphs = t;
 }
 
 void Spawner::LoadArt(TextureManager& tex)
@@ -119,9 +126,11 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
         SpawnBoss(player.position, map);
     }
 
+    bool bossActive = false;   // есть ли сейчас живой босс (для демо-телеграфа)
     for (auto& e : enemies)
     {
         e.Update(deltaTime, player.position, map);
+        if (e.active && !e.dying && e.type == ENEMY_BOSS) bossActive = true;
 
         // Призыв миньонов (Королева пауков). Интервал — из BossDef, кол-во — из Tuning.
         if (e.active && !e.dying && e.canSummon)
@@ -146,30 +155,28 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
         if (e.active && !e.dying && CheckCollisionRecs(e.GetRect(), player.GetRect()))
             player.TakeDamage(e.damage);
     }
+
+    // Тест конвейера телеграфов (Шаг 9): активный босс периодически «заказывает»
+    // предупреждающую зону под игроком. Все числа — из конфига.
+    if (telegraphs && bossActive)
+    {
+        telegraphTimer += deltaTime;
+        if (telegraphTimer >= Tuning::kBossTelegraphInterval)
+        {
+            telegraphTimer = 0.0f;
+            telegraphs->SpawnCircle(player.position,
+                                    Tuning::kBossTelegraphRadius,
+                                    Tuning::kBossTelegraphDamage,
+                                    Tuning::kTelegraphDefaultFill,
+                                    Color{ 230, 60, 60, 255 });
+        }
+    }
+    else
+    {
+        telegraphTimer = 0.0f;   // нет босса — сбрасываем накопление
+    }
 }
 
 void Spawner::Draw(Camera2D camera, int screenW, int screenH) const
 {
-    // Оптимизация (Шаг 28): рисуем только врагов в видимой области (culling).
-    // При сотнях врагов это экономит вызовы отрисовки на тех, кого не видно.
-    // (Дальнейший задел — упаковка спрайтов в один атлас текстур.)
-    float halfW = (screenW * 0.5f) / camera.zoom + 96.0f;
-    float halfH = (screenH * 0.5f) / camera.zoom + 96.0f;
-    Vector2 c = camera.target;
-    for (auto& e : enemies)
-    {
-        if (!e.active) continue;
-        if (e.position.x < c.x - halfW || e.position.x > c.x + halfW ||
-            e.position.y < c.y - halfH || e.position.y > c.y + halfH)
-            continue;
-        e.Draw();
-    }
-}
-
-int Spawner::ActiveCount() const
-{
-    int cnt = 0;
-    for (auto& e : enemies)
-        if (e.active && !e.dying) cnt++;
-    return cnt;
-}
+    // Оптимизация (Шаг 28): рисуем только враго

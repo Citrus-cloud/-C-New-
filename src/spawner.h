@@ -7,6 +7,7 @@
 #include <vector>
 
 class TextureManager;
+class TelegraphSystem;   // система телеграфов (Фаза 2)
 
 class Spawner
 {
@@ -19,9 +20,11 @@ public:
     float elapsed;
     int bossEventLine;
     int bossSpawnCount;   // сколько боссов уже вызвано (для чередования)
+    float telegraphTimer; // таймер демо-телеграфа босса (Фаза 2)
 
     Spawner(int poolSize);
     void LoadArt(TextureManager& textures);
+    void SetTelegraphs(TelegraphSystem* t);   // привязка системы телеграфов (Фаза 2)
     Enemy* GetInactive();
     void SpawnWave(Vector2 center, const TileMap& map);
     void SpawnBoss(Vector2 center, const TileMap& map);
@@ -33,5 +36,6 @@ private:
     Animation artGruntWalk, artFastWalk, artTankWalk, artBossWalk;
     Animation artSpiderWalk, artKnightWalk;   // спрайты конкретных боссов
     Animation artEnemyDeath, artBossDeath;
+    TelegraphSystem* telegraphs;   // куда враги «заказывают» зоны (может быть nullptr)
     void AssignArt(Enemy* e, EnemyType t);
 };
