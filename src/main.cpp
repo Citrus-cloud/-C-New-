@@ -16,6 +16,8 @@
 #include "characters.h"
 #include "bosses.h"
 #include "maps.h"
+#include "tuning.h"     // единый конфиг боя (Фаза 1)
+#include "director.h"   // менеджер волн и доступности приёмов (Фаза 1)
 
 // Состояния игры. MENU/SELECT/META/SETTINGS — экраны лагеря (Фаза 6).
 enum GameState { MENU, SELECT, META, SETTINGS, PLAYING, LEVEL_UP, PAUSED, GAME_OVER };
@@ -46,6 +48,7 @@ int main()
     player.LoadSprites(textures);
     Spawner spawner(200);
     spawner.LoadArt(textures);
+    WaveDirector director;   // менеджер волн и доступности приёмов (Фаза 1)
     Weapon weapon(300);
     ExpOrbs orbs(500);
     Traps traps;
@@ -66,6 +69,7 @@ int main()
     float subtitleTimer = 0.0f;
     int subtitleLine = -1;
     bool newRecord = false;
+    bool showDebug = false;     // отладочный показ правил конфига (клавиша F3, Фаза 1)
 
     GameState state = MENU;
 
@@ -84,6 +88,7 @@ int main()
         player.LoadSprites(textures);
         spawner = Spawner(200);
         spawner.LoadArt(textures);
+        director.Reset();   // сброс времени забега и кулдаунов (Фаза 1)
         weapon = Weapon(300);
         orbs = ExpOrbs(500);
         traps = Traps();
@@ -185,7 +190,9 @@ int main()
         }
         else if (state == PLAYING)
         {
+            if (IsKeyPressed(KEY_F3)) showDebug = !showDebug;   // отладка: показать правила конфига
             survivalTime += dt;
+            director.Update(dt);   // продвигаем время забега (Фаза 1)
             player.Update(dt, map);
             spawner.Update(dt, player, map);
             if (player.gotHit)
@@ -324,55 +331,4 @@ int main()
                 Color c2 = (settingsRow == 2) ? GOLD : RAYWHITE;
                 hud.Text(TextFormat("Музыка:         %d%%", save.musicVolume), x, 240, 26, c0);
                 hud.Text(TextFormat("Звуки:          %d%%", save.sfxVolume), x, 290, 26, c1);
-                hud.Text(TextFormat("Полный экран:   %s", save.fullscreen ? "ДА" : "НЕТ"), x, 340, 26, c2);
-
-                const char* hint = "Вверх/Вниз — выбор,  Влево/Вправо — изменить,  ESC — назад";
-                hud.Text(hint, screenWidth / 2.0f - hud.TextWidth(hint, 18) / 2.0f, 430, 18, GRAY);
-            }
-            else
-            {
-                BeginMode2D(camera);
-                    map.Draw(camera);
-                    traps.Draw();
-                    loot.Draw();
-                    orbs.Draw();
-                    spawner.Draw(camera, screenWidth, screenHeight);
-                    weapon.Draw();
-                    player.Draw();
-                    abilities.Draw(player.position);
-                    effects.DrawWorld();
-                EndMode2D();
-
-                effects.DrawScreen(screenWidth, screenHeight);
-
-                hud.DrawGame(player, spawner, weapon, survivalTime);
-
-                if (subtitleTimer > 0.0f && subtitleLine >= 0)
-                {
-                    float alpha = (subtitleTimer < 1.0f) ? subtitleTimer : 1.0f;
-                    const BossDef& bd = GetBossDef(subtitleLine);
-                    hud.DrawSubtitle(bd.name, bd.line, alpha);
-                }
-
-                if (state == LEVEL_UP)
-                    hud.DrawLevelUp(GetUpgradeText(1), GetUpgradeText(2), GetUpgradeText(3));
-                else if (state == PAUSED)
-                    hud.DrawPause();
-                else if (state == GAME_OVER)
-                {
-                    hud.DrawGameOver(survivalTime, player.level, save.bestTime, save.bestLevel, newRecord);
-                    const char* ce = TextFormat("Заработано монет: %d   (всего: %d)", lastEarnedCoins, save.coins);
-                    hud.Text(ce, screenWidth / 2.0f - hud.TextWidth(ce, 22) / 2.0f, 410, 22, GOLD);
-                }
-            }
-
-            DrawFPS(screenWidth - 90, screenHeight - 28);
-        EndDrawing();
-    }
-
-    audio.Unload();
-    hud.Unload();
-    textures.UnloadAll();
-    CloseWindow();
-    return 0;
-}
+                hud.Text(TextFormat("Полный экран:   %s",

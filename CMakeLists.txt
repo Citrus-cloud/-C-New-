@@ -32,6 +32,7 @@ add_executable(${PROJECT_NAME}
     src/animation.cpp
     src/effects.cpp
     src/abilities.cpp
+    src/director.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} raylib)

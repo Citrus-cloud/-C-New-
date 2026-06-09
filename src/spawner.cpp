@@ -1,11 +1,12 @@
 #include "spawner.h"
 #include "textures.h"
 #include "bosses.h"
+#include "tuning.h"   // все числовые параметры спавна берём отсюда (Фаза 1)
 #include <cmath>
 
 Spawner::Spawner(int poolSize)
-    : spawnTimer(0.0f), spawnInterval(2.0f),
-      bossTimer(0.0f), bossInterval(30.0f), elapsed(0.0f),
+    : spawnTimer(0.0f), spawnInterval(Tuning::kSpawnBaseInterval),
+      bossTimer(0.0f), bossInterval(Tuning::kBossInterval), elapsed(0.0f),
       bossEventLine(-1), bossSpawnCount(0)
 {
     enemies.resize(poolSize);
@@ -53,9 +54,8 @@ Enemy* Spawner::GetInactive()
 
 void Spawner::SpawnWave(Vector2 center, const TileMap& map)
 {
-    // Баланс (Шаг 29): со временем волны крупнее, от 6 до 12 врагов.
-    int count = 6 + (int)(elapsed / 30.0f);
-    if (count > 12) count = 12;
+    // Размер волны берём из конфига (растёт со временем до потолка).
+    int count = Tuning::CurrentWaveCount(elapsed);
     for (int i = 0; i < count; i++)
     {
         Enemy* e = GetInactive();
@@ -65,10 +65,11 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
         Vector2 pos = { center.x + cosf(angle) * r, center.y + sinf(angle) * r };
         pos = map.FindFreeSpot(pos, 16.0f);
 
+        // Состав волны тоже из конфига: танки после kTankUnlockTime, шансы — kTankChance/kFastChance.
         EnemyType t = ENEMY_GRUNT;
         int roll = GetRandomValue(0, 99);
-        if (elapsed > 60.0f && roll < 20) t = ENEMY_TANK;
-        else if (roll < 35) t = ENEMY_FAST;
+        if (elapsed > Tuning::kTankUnlockTime && roll < Tuning::kTankChance) t = ENEMY_TANK;
+        else if (roll < Tuning::kFastChance) t = ENEMY_FAST;
 
         e->Spawn(pos, t);
         AssignArt(e, t);
@@ -102,10 +103,9 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
 {
     elapsed += deltaTime;
 
-    // Баланс (Шаг 29): интервал спавна сокращается со временем (сложность растёт).
+    // Темп волн — из конфига (интервал сокращается со временем, см. Tuning).
     spawnTimer += deltaTime;
-    float curInterval = spawnInterval - elapsed * 0.01f;
-    if (curInterval < 0.6f) curInterval = 0.6f;
+    float curInterval = Tuning::CurrentSpawnInterval(elapsed);
     if (spawnTimer >= curInterval)
     {
         spawnTimer = 0.0f;
@@ -113,7 +113,7 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
     }
 
     bossTimer += deltaTime;
-    if (bossTimer >= bossInterval)
+    if (Tuning::kBossEnabled && bossTimer >= Tuning::kBossInterval)
     {
         bossTimer = 0.0f;
         SpawnBoss(player.position, map);
@@ -123,18 +123,18 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
     {
         e.Update(deltaTime, player.position, map);
 
-        // Призыв миньонов (Королева пауков, Шаг 21).
+        // Призыв миньонов (Королева пауков). Интервал — из BossDef, кол-во — из Tuning.
         if (e.active && !e.dying && e.canSummon)
         {
             e.summonTimer -= deltaTime;
             if (e.summonTimer <= 0.0f)
             {
                 e.summonTimer = GetBossDef(e.bossId).summonInterval;
-                for (int s = 0; s < 3; s++)
+                for (int s = 0; s < Tuning::kSummonMinionCount; s++)
                 {
                     Enemy* m = GetInactive();
                     if (!m) break;
-                    float ang = (float)s / 3.0f * 2.0f * PI;
+                    float ang = (float)s / Tuning::kSummonMinionCount * 2.0f * PI;
                     Vector2 mp = { e.position.x + cosf(ang) * 60.0f, e.position.y + sinf(ang) * 60.0f };
                     mp = map.FindFreeSpot(mp, 12.0f);
                     m->Spawn(mp, ENEMY_FAST);
