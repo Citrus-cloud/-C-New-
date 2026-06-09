@@ -331,4 +331,77 @@ int main()
                 Color c2 = (settingsRow == 2) ? GOLD : RAYWHITE;
                 hud.Text(TextFormat("Музыка:         %d%%", save.musicVolume), x, 240, 26, c0);
                 hud.Text(TextFormat("Звуки:          %d%%", save.sfxVolume), x, 290, 26, c1);
-                hud.Text(TextFormat("Полный экран:   %s",
+                hud.Text(TextFormat("Полный экран:   %s", save.fullscreen ? "ДА" : "НЕТ"), x, 340, 26, c2);
+
+                const char* hint = "Вверх/Вниз — выбор,  Влево/Вправо — изменить,  ESC — назад";
+                hud.Text(hint, screenWidth / 2.0f - hud.TextWidth(hint, 18) / 2.0f, 430, 18, GRAY);
+            }
+            else
+            {
+                BeginMode2D(camera);
+                    map.Draw(camera);
+                    traps.Draw();
+                    loot.Draw();
+                    orbs.Draw();
+                    spawner.Draw(camera, screenWidth, screenHeight);
+                    weapon.Draw();
+                    player.Draw();
+                    abilities.Draw(player.position);
+                    effects.DrawWorld();
+                EndMode2D();
+
+                effects.DrawScreen(screenWidth, screenHeight);
+
+                hud.DrawGame(player, spawner, weapon, survivalTime);
+
+                // Отладочный оверлей (F3): текущие правила конфига и статус приёмов (Шаг 5).
+                // Латинские имена — читаемы даже без кириллического шрифта.
+                if (showDebug)
+                {
+                    float dx = 16.0f, dy = 90.0f;
+                    hud.Text(TextFormat("DEBUG F3  t=%.1f  wave=%d  spawn=%.2f",
+                        director.elapsed, director.WaveCount(), director.SpawnInterval()), dx, dy, 18, LIME);
+                    dy += 26.0f;
+                    for (int i = 0; i < Tuning::ABILITY_COUNT; i++)
+                    {
+                        Tuning::AbilityId id = (Tuning::AbilityId)i;
+                        const Tuning::AbilityRule& r = Tuning::GetRule(id);
+                        const char* status;
+                        Color col;
+                        if (!director.IsUnlocked(id)) { status = TextFormat("LOCKED unlock=%.0fs", r.unlockTime); col = GRAY; }
+                        else if (director.CanUse(id)) { status = "READY"; col = LIME; }
+                        else { status = TextFormat("CD %.1fs", director.CooldownLeft(id)); col = ORANGE; }
+                        hud.Text(TextFormat("%-9s %s", r.name, status), dx, dy, 16, col);
+                        dy += 19.0f;
+                    }
+                }
+
+                if (subtitleTimer > 0.0f && subtitleLine >= 0)
+                {
+                    float alpha = (subtitleTimer < 1.0f) ? subtitleTimer : 1.0f;
+                    const BossDef& bd = GetBossDef(subtitleLine);
+                    hud.DrawSubtitle(bd.name, bd.line, alpha);
+                }
+
+                if (state == LEVEL_UP)
+                    hud.DrawLevelUp(GetUpgradeText(1), GetUpgradeText(2), GetUpgradeText(3));
+                else if (state == PAUSED)
+                    hud.DrawPause();
+                else if (state == GAME_OVER)
+                {
+                    hud.DrawGameOver(survivalTime, player.level, save.bestTime, save.bestLevel, newRecord);
+                    const char* ce = TextFormat("Заработано монет: %d   (всего: %d)", lastEarnedCoins, save.coins);
+                    hud.Text(ce, screenWidth / 2.0f - hud.TextWidth(ce, 22) / 2.0f, 410, 22, GOLD);
+                }
+            }
+
+            DrawFPS(screenWidth - 90, screenHeight - 28);
+        EndDrawing();
+    }
+
+    audio.Unload();
+    hud.Unload();
+    textures.UnloadAll();
+    CloseWindow();
+    return 0;
+}
