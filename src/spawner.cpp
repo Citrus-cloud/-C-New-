@@ -179,4 +179,26 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
 
 void Spawner::Draw(Camera2D camera, int screenW, int screenH) const
 {
-    // Оптимизация (Шаг 28): рисуем только враго
+    // Оптимизация (Шаг 28): рисуем только врагов в видимой области (culling).
+    // При сотнях врагов это экономит вызовы отрисовки на тех, кого не видно.
+    // (Дальнейший задел — упаковка спрайтов в один атлас текстур.)
+    float halfW = (screenW * 0.5f) / camera.zoom + 96.0f;
+    float halfH = (screenH * 0.5f) / camera.zoom + 96.0f;
+    Vector2 c = camera.target;
+    for (auto& e : enemies)
+    {
+        if (!e.active) continue;
+        if (e.position.x < c.x - halfW || e.position.x > c.x + halfW ||
+            e.position.y < c.y - halfH || e.position.y > c.y + halfH)
+            continue;
+        e.Draw();
+    }
+}
+
+int Spawner::ActiveCount() const
+{
+    int cnt = 0;
+    for (auto& e : enemies)
+        if (e.active && !e.dying) cnt++;
+    return cnt;
+}
