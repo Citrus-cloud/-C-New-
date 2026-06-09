@@ -9,6 +9,7 @@ public:
     Vector2 position;  // позиция на карте (x, y) - центр игрока
     float speed;       // скорость в пикселях в секунду
     int health;        // здоровье
+    int xp;            // накопленный опыт
 
     Player(Vector2 startPos);
 

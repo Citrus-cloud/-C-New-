@@ -2,13 +2,12 @@
 #include <cmath>
 
 Player::Player(Vector2 startPos)
-    : position(startPos), speed(250.0f), health(100)
+    : position(startPos), speed(250.0f), health(100), xp(0)
 {
 }
 
 Rectangle Player::GetRect() const
 {
-    // Квадрат 40x40 с центром в position
     return { position.x - 20.0f, position.y - 20.0f, 40.0f, 40.0f };
 }
 
@@ -37,8 +36,7 @@ void Player::Update(float deltaTime, const TileMap& map)
         float dx = dir.x * speed * deltaTime;
         float dy = dir.y * speed * deltaTime;
 
-        // Двигаемся по осям раздельно: если врезались в стену - откатываем
-position.x += dx;
+        position.x += dx;
         if (map.CheckCollision(GetRect())) position.x -= dx;
 
         position.y += dy;

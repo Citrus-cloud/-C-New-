@@ -20,5 +20,8 @@ add_executable(${PROJECT_NAME}
     src/tilemap.cpp
     src/enemy.cpp
     src/spawner.cpp
+    src/projectile.cpp
+    src/combat.cpp
+    src/pickups.cpp
 )
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib)
