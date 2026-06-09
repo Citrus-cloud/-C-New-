@@ -3,8 +3,9 @@
 #include <cmath>
 
 Enemy::Enemy()
-    : position({ 0.0f, 0.0f }), speed(120.0f), health(30), active(false),
+    : position({ 0.0f, 0.0f }), speed(120.0f), health(30), maxHealth(30), active(false),
       type(ENEMY_GRUNT), size(16.0f), color(PURPLE), damage(5), xpValue(1),
+      facingLeft(false), dying(false), deathTimer(0.0f),
       pathIndex(0), repathTimer(0.0f),
       dashing(false), dashTimer(0.0f), dashCooldown(3.0f), dashDir({ 0.0f, 0.0f })
 {
@@ -14,6 +15,9 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
 {
     position = pos;
     active = true;
+    dying = false;
+    deathTimer = 0.0f;
+    facingLeft = false;
     type = t;
     path.clear();
     pathIndex = 0;
@@ -39,11 +43,31 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
             health = 30; speed = 120.0f; size = 16.0f; color = PURPLE; damage = 5; xpValue = 1;
             break;
     }
+
+    maxHealth = health; // запоминаем полное здоровье для полоски
 }
 
 Rectangle Enemy::GetRect() const
 {
     return { position.x - size, position.y - size, size * 2.0f, size * 2.0f };
+}
+
+// Начинает смерть врага. Если есть спрайт смерти — запускаем анимацию,
+// иначе убираем сразу (поведение v0.1).
+void Enemy::Kill()
+{
+    health = 0;
+    if (dying) return;
+    if (deathAnim.Valid())
+    {
+        dying = true;
+        deathTimer = 0.6f;
+        deathAnim.Reset();
+    }
+    else
+    {
+        active = false;
+    }
 }
 
 // Движение к точке с учётом стен (раздельно по осям)
@@ -64,6 +88,21 @@ static void MoveToward(Vector2& pos, Vector2 target, float dist, float halfSize,
 void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map)
 {
     if (!active) return;
+
+    // СМЕРТЬ: проигрываем анимацию и затем убираем из пула.
+    if (dying)
+    {
+        deathAnim.Update(deltaTime);
+        deathTimer -= deltaTime;
+        if (deathTimer <= 0.0f) active = false;
+        return;
+    }
+
+    // Направление взгляда — в сторону игрока (для отражения спрайта).
+    facingLeft = (playerPos.x < position.x);
+
+    // Анимация ходьбы идёт постоянно, пока враг жив.
+    walkAnim.Update(deltaTime);
 
     // РЫВОК БОССОВ: периодический рывок в сторону игрока
     if (type == ENEMY_BOSS)
@@ -123,13 +162,65 @@ void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map)
     }
 }
 
+// Рисует полоску здоровья над врагом.
+// Обычные враги показывают её только при повреждении; боссы — всегда.
+void Enemy::DrawHealthBar() const
+{
+    if (maxHealth <= 0) return;
+    if (type != ENEMY_BOSS && health >= maxHealth) return;
+
+    float frac = (float)health / (float)maxHealth;
+    if (frac < 0.0f) frac = 0.0f;
+    if (frac > 1.0f) frac = 1.0f;
+
+    bool boss = (type == ENEMY_BOSS);
+    float w = boss ? size * 2.4f : size * 2.0f;
+    float barH = boss ? 8.0f : 4.0f;
+    float x = position.x - w / 2.0f;
+    float y = position.y - size - (boss ? 16.0f : 8.0f);
+
+    DrawRectangle((int)(x - 1), (int)(y - 1), (int)(w + 2), (int)(barH + 2), Fade(BLACK, 0.6f));
+    DrawRectangle((int)x, (int)y, (int)w, (int)barH, Color{ 60, 60, 60, 255 });
+    DrawRectangle((int)x, (int)y, (int)(w * frac), (int)barH, boss ? RED : GREEN);
+}
+
 void Enemy::Draw() const
 {
     if (!active) return;
-    Color c = dashing ? ORANGE : color;  // во время рывка — телеграф
-    DrawRectangle((int)(position.x - size), (int)(position.y - size),
-                  (int)(size * 2.0f), (int)(size * 2.0f), c);
-    if (type == ENEMY_BOSS)
-        DrawRectangleLines((int)(position.x - size), (int)(position.y - size),
-                           (int)(size * 2.0f), (int)(size * 2.0f), YELLOW);
+
+    // Анимация смерти.
+    if (dying)
+    {
+        if (deathAnim.Valid())
+        {
+            float target = size * 2.6f;
+            float h = (float)deathAnim.FrameHeight();
+            float sc = (h > 0.0f) ? target / h : 1.0f;
+            deathAnim.Draw(position, sc, facingLeft, WHITE);
+        }
+        return;
+    }
+
+    if (walkAnim.Valid())
+    {
+        // Размер спрайта привязан к размеру врага, независимо от разрешения PNG.
+        float target = size * 2.6f;
+        float h = (float)walkAnim.FrameHeight();
+        float sc = (h > 0.0f) ? target / h : 1.0f;
+        // Во время рывка босс подсвечивается (телеграф).
+        Color tint = dashing ? Color{ 255, 180, 120, 255 } : WHITE;
+        walkAnim.Draw(position, sc, facingLeft, tint);
+    }
+    else
+    {
+        // Fallback к v0.1: цветные прямоугольники.
+        Color c = dashing ? ORANGE : color;
+        DrawRectangle((int)(position.x - size), (int)(position.y - size),
+                      (int)(size * 2.0f), (int)(size * 2.0f), c);
+        if (type == ENEMY_BOSS)
+            DrawRectangleLines((int)(position.x - size), (int)(position.y - size),
+                               (int)(size * 2.0f), (int)(size * 2.0f), YELLOW);
+    }
+
+    DrawHealthBar();
 }

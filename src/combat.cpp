@@ -21,7 +21,7 @@ Enemy* Weapon::FindNearestEnemy(Vector2 from, Spawner& spawner)
     float bestDist = 1e9f;
     for (Enemy& e : spawner.enemies)
     {
-        if (!e.active) continue;
+        if (!e.active || e.dying) continue;  // умирающих не берём в цели
         float dx = e.position.x - from.x;
         float dy = e.position.y - from.y;
         float dist = sqrtf(dx * dx + dy * dy);
@@ -77,7 +77,7 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
         if (!p.active) continue;
         for (Enemy& e : spawner.enemies)
         {
-            if (!e.active) continue;
+            if (!e.active || e.dying) continue;  // умирающих пропускаем
             if (CheckCollisionRecs(p.GetRect(), e.GetRect()))
             {
                 e.health -= p.damage;
@@ -86,7 +86,7 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
 
                 if (e.health <= 0)
                 {
-                    e.active = false;
+                    e.Kill();  // запускаем анимацию смерти (или сразу убираем)
                     for (int k = 0; k < e.xpValue; k++)
                         orbs.Spawn(e.position);
 

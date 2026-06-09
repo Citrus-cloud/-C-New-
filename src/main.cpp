@@ -38,6 +38,7 @@ int main()
     Player player(map.GetSpawnPoint());
     player.LoadSprites(textures);
     Spawner spawner(200);
+    spawner.LoadArt(textures);
     Weapon weapon(300);
     ExpOrbs orbs(500);
     Traps traps;
@@ -64,6 +65,7 @@ int main()
         player = Player(map.GetSpawnPoint());
         player.LoadSprites(textures);
         spawner = Spawner(200);
+        spawner.LoadArt(textures);
         weapon = Weapon(300);
         orbs = ExpOrbs(500);
         traps = Traps();
