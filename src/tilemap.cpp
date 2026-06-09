@@ -1,24 +1,68 @@
 #include "tilemap.h"
 #include <cmath>
+#include <random>
+#include <algorithm>
 
-TileMap::TileMap() : tileSize(64)
+TileMap::TileMap() : tileSize(64), spawnCol(2), spawnRow(2)
 {
-    grid = {
-        "WWWWWWWWWWWWWWWWWWWW",
-        "W..................W",
-        "W..................W",
-        "W....WW....WW......W",
-        "W....WW....WW......W",
-        "W..................W",
-        "W........WW........W",
-        "W........WW........W",
-        "W..................W",
-        "W....WW....WW......W",
-        "W....WW....WW......W",
-        "W..................W",
-        "W..................W",
-        "WWWWWWWWWWWWWWWWWWWW",
+    // Генерируем карту 64x44 тайла (фиксированный seed для повторяемости)
+    Generate(64, 44, 20240609u);
+}
+
+// Процедурная генерация: случайные комнаты, соединённые коридорами.
+void TileMap::Generate(int width, int height, unsigned int seed)
+{
+    std::mt19937 rng(seed);
+    grid.assign(height, std::string(width, 'W'));
+    rooms.clear();
+
+    auto carveRoom = [&](int rx, int ry, int rw, int rh) {
+        for (int y = ry; y < ry + rh; y++)
+            for (int x = rx; x < rx + rw; x++)
+                if (x > 0 && y > 0 && x < width - 1 && y < height - 1)
+                    grid[y][x] = '.';
     };
+    auto carveH = [&](int x1, int x2, int y) {
+        for (int x = std::min(x1, x2); x <= std::max(x1, x2); x++)
+            if (x > 0 && y > 0 && x < width - 1 && y < height - 1)
+                grid[y][x] = '.';
+    };
+    auto carveV = [&](int y1, int y2, int x) {
+        for (int y = std::min(y1, y2); y <= std::max(y1, y2); y++)
+            if (x > 0 && y > 0 && x < width - 1 && y < height - 1)
+                grid[y][x] = '.';
+    };
+
+    std::uniform_int_distribution<int> roomCount(14, 20);
+    int n = roomCount(rng);
+    int prevcx = 0, prevcy = 0;
+    bool first = true;
+
+    for (int i = 0; i < n; i++)
+    {
+        std::uniform_int_distribution<int> wd(4, 9), hd(4, 8);
+        int rw = wd(rng), rh = hd(rng);
+        if (width - rw - 2 < 1 || height - rh - 2 < 1) continue;
+        std::uniform_int_distribution<int> xd(1, width - rw - 2), yd(1, height - rh - 2);
+        int rx = xd(rng), ry = yd(rng);
+        carveRoom(rx, ry, rw, rh);
+
+        int cx = rx + rw / 2, cy = ry + rh / 2;
+        if (!first)
+        {
+            carveH(prevcx, cx, prevcy);  // горизонтальный коридор
+            carveV(prevcy, cy, cx);      // и вертикальный - получается «L»
+        }
+        else
+        {
+            spawnCol = cx;
+            spawnRow = cy;
+            first = false;
+        }
+        rooms.push_back({ (float)cx, (float)cy });
+        prevcx = cx;
+        prevcy = cy;
+    }
 }
 
 bool TileMap::IsWall(int col, int row) const
@@ -70,8 +114,6 @@ bool TileMap::IsFree(Rectangle rect) const
     return !CheckCollision(rect);
 }
 
-// Ищем ближайшую свободную точку по расширяющимся кольцам.
-// Гарантирует, что объект никогда не останется внутри стены.
 Vector2 TileMap::FindFreeSpot(Vector2 desired, float halfSize) const
 {
     Rectangle r0 = { desired.x - halfSize, desired.y - halfSize, halfSize * 2.0f, halfSize * 2.0f };
@@ -79,7 +121,7 @@ Vector2 TileMap::FindFreeSpot(Vector2 desired, float halfSize) const
 
     int step = (int)halfSize;
     if (step < 1) step = 1;
-    for (int radius = step; radius <= 4000; radius += step)
+    for (int radius = step; radius <= 8000; radius += step)
     {
         for (int angle = 0; angle < 360; angle += 15)
         {
@@ -92,5 +134,13 @@ Vector2 TileMap::FindFreeSpot(Vector2 desired, float halfSize) const
             if (IsFree(tr)) return test;
         }
     }
-    return desired;  // на крайний случай
+    return desired;
+}
+
+Vector2 TileMap::GetSpawnPoint() const
+{
+    return {
+        spawnCol * (float)tileSize + tileSize * 0.5f,
+        spawnRow * (float)tileSize + tileSize * 0.5f
+    };
 }

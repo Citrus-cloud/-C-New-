@@ -1,20 +1,24 @@
 #pragma once
 #include "raylib.h"
+#include "tilemap.h"
+#include <vector>
 
-// Враг. Поле active нужно для пула объектов:
-// вместо создания/удаления мы просто включаем/выключаем врагов.
 class Enemy
 {
 public:
     Vector2 position;
     float speed;
     int health;
-    bool active;   // используется ли этот враг сейчас
+    bool active;
+
+    // Для поиска пути A*
+    std::vector<Vector2> path;
+    int pathIndex;
+    float repathTimer;
 
     Enemy();
-
-    void Spawn(Vector2 pos);                        // включить врага в точке
-    void Update(float deltaTime, Vector2 playerPos); // ИИ: идём к игроку
+    void Spawn(Vector2 pos);
+    void Update(float deltaTime, Vector2 playerPos, const TileMap& map);
     void Draw() const;
     Rectangle GetRect() const;
 };

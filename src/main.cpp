@@ -5,6 +5,7 @@
 #include "combat.h"
 #include "pickups.h"
 #include "upgrades.h"
+#include "traps.h"
 
 // Состояния игры
 enum GameState { PLAYING, LEVEL_UP };
@@ -18,10 +19,12 @@ int main()
     SetTargetFPS(60);
 
     TileMap map;
-    Player player({ 224.0f, 160.0f });
+    Player player(map.GetSpawnPoint());
     Spawner spawner(200);
     Weapon weapon(300);
     ExpOrbs orbs(500);
+    Traps traps;
+    traps.Generate(map, 16, 777u);
 
     GameState state = PLAYING;
 
@@ -38,9 +41,10 @@ int main()
         if (state == PLAYING)
         {
             player.Update(deltaTime, map);
-            spawner.Update(deltaTime, player.position);
+            spawner.Update(deltaTime, player.position, map);
             weapon.Update(deltaTime, player.position, spawner, orbs);
             orbs.Update(deltaTime, player);
+            traps.Update(deltaTime, player);
             camera.target = player.position;
 
             if (player.TryLevelUp())
@@ -66,6 +70,7 @@ int main()
 
             BeginMode2D(camera);
                 map.Draw();
+                traps.Draw();
                 orbs.Draw();
                 spawner.Draw();
                 weapon.Draw();
@@ -73,8 +78,9 @@ int main()
             EndMode2D();
 
             DrawText("WASD / Arrows / Gamepad - move", 10, 40, 20, RAYWHITE);
-            DrawText(TextFormat("Enemies: %d", spawner.ActiveCount()), 10, 65, 20, RAYWHITE);
-            DrawText(TextFormat("Level: %d   XP: %d / %d", player.level, player.xp, player.xpToNext), 10, 90, 20, RAYWHITE);
+            DrawText(TextFormat("HP: %d", player.health), 10, 65, 20, (player.health > 30) ? GREEN : RED);
+            DrawText(TextFormat("Enemies: %d", spawner.ActiveCount()), 10, 90, 20, RAYWHITE);
+            DrawText(TextFormat("Level: %d   XP: %d / %d", player.level, player.xp, player.xpToNext), 10, 115, 20, RAYWHITE);
             DrawFPS(10, 10);
 
             if (state == LEVEL_UP)

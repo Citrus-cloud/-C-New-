@@ -1,21 +1,20 @@
 #pragma once
 #include "raylib.h"
 #include "enemy.h"
+#include "tilemap.h"
 #include <vector>
 
-// Спавнер с пулом объектов: заранее создаём N врагов и переиспользуем их.
 class Spawner
 {
 public:
-    std::vector<Enemy> pool;  // пул врагов
+    std::vector<Enemy> enemies;
     float spawnTimer;
-    float spawnInterval;      // раз в сколько секунд волна
+    float spawnInterval;
 
-    Spawner(int maxEnemies);
-
-    void Update(float deltaTime, Vector2 playerPos);
+    Spawner(int poolSize);
+    Enemy* GetInactive();
+    void SpawnWave(Vector2 center, const TileMap& map);
+    void Update(float deltaTime, Vector2 playerPos, const TileMap& map);
     void Draw() const;
-    void SpawnWave(int count, Vector2 center);
-    Enemy* GetInactive();      // найти свободного врага в пуле
-    int ActiveCount() const;   // сколько врагов сейчас активно
+    int ActiveCount() const;
 };
