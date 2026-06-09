@@ -26,7 +26,7 @@ public:
     void SpawnWave(Vector2 center, const TileMap& map);
     void SpawnBoss(Vector2 center, const TileMap& map);
     void Update(float deltaTime, Player& player, const TileMap& map);
-    void Draw() const;
+    void Draw(Camera2D camera, int screenW, int screenH) const;   // culling (Шаг 28)
     int ActiveCount() const;
 
 private:

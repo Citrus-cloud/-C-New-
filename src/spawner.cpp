@@ -53,7 +53,9 @@ Enemy* Spawner::GetInactive()
 
 void Spawner::SpawnWave(Vector2 center, const TileMap& map)
 {
-    int count = 8;
+    // Баланс (Шаг 29): со временем волны крупнее, от 6 до 12 врагов.
+    int count = 6 + (int)(elapsed / 30.0f);
+    if (count > 12) count = 12;
     for (int i = 0; i < count; i++)
     {
         Enemy* e = GetInactive();
@@ -100,8 +102,11 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
 {
     elapsed += deltaTime;
 
+    // Баланс (Шаг 29): интервал спавна сокращается со временем (сложность растёт).
     spawnTimer += deltaTime;
-    if (spawnTimer >= spawnInterval)
+    float curInterval = spawnInterval - elapsed * 0.01f;
+    if (curInterval < 0.6f) curInterval = 0.6f;
+    if (spawnTimer >= curInterval)
     {
         spawnTimer = 0.0f;
         SpawnWave(player.position, map);
@@ -143,16 +148,28 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
     }
 }
 
-void Spawner::Draw() const
+void Spawner::Draw(Camera2D camera, int screenW, int screenH) const
 {
+    // Оптимизация (Шаг 28): рисуем только врагов в видимой области (culling).
+    // При сотнях врагов это экономит вызовы отрисовки на тех, кого не видно.
+    // (Дальнейший задел — упаковка спрайтов в один атлас текстур.)
+    float halfW = (screenW * 0.5f) / camera.zoom + 96.0f;
+    float halfH = (screenH * 0.5f) / camera.zoom + 96.0f;
+    Vector2 c = camera.target;
     for (auto& e : enemies)
+    {
+        if (!e.active) continue;
+        if (e.position.x < c.x - halfW || e.position.x > c.x + halfW ||
+            e.position.y < c.y - halfH || e.position.y > c.y + halfH)
+            continue;
         e.Draw();
+    }
 }
 
 int Spawner::ActiveCount() const
 {
-    int c = 0;
+    int cnt = 0;
     for (auto& e : enemies)
-        if (e.active && !e.dying) c++;
-    return c;
+        if (e.active && !e.dying) cnt++;
+    return cnt;
 }

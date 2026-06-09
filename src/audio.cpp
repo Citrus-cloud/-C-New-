@@ -27,7 +27,8 @@ static Music LoadMusicAny(const char* base, bool& ok)
 }
 
 AudioManager::AudioManager()
-    : ready(false), menuMusicOk(false), gameMusicOk(false), currentMusic(0),
+    : ready(false), musicVol(0.8f), sfxVol(1.0f),
+      menuMusicOk(false), gameMusicOk(false), currentMusic(0),
       shootOk(false), hitOk(false), pickupOk(false), levelUpOk(false), bossOk(false),
       voiceSpiderOk(false), voiceKnightOk(false)
 {
@@ -48,6 +49,10 @@ void AudioManager::Init()
     sfxBoss    = LoadSoundAny("assets/audio/boss", bossOk);
     voiceSpider = LoadSoundAny("assets/audio/voice_spider", voiceSpiderOk);
     voiceKnight = LoadSoundAny("assets/audio/voice_knight", voiceKnightOk);
+
+    // Применяем стартовые уровни громкости.
+    SetMusicLevel((int)(musicVol * 100.0f));
+    SetSfxLevel((int)(sfxVol * 100.0f));
 }
 
 void AudioManager::Unload()
@@ -70,6 +75,32 @@ void AudioManager::Update()
     if (!ready) return;
     if (currentMusic == 1 && menuMusicOk) UpdateMusicStream(menuMusic);
     else if (currentMusic == 2 && gameMusicOk) UpdateMusicStream(gameMusic);
+}
+
+// Громкость музыки 0..100. :: вызывает глобальную функцию raylib,
+// чтобы не путать с методом класса.
+void AudioManager::SetMusicLevel(int v)
+{
+    if (v < 0) v = 0; if (v > 100) v = 100;
+    musicVol = v / 100.0f;
+    if (!ready) return;
+    if (menuMusicOk) ::SetMusicVolume(menuMusic, musicVol);
+    if (gameMusicOk) ::SetMusicVolume(gameMusic, musicVol);
+}
+
+// Громкость звуковых эффектов 0..100.
+void AudioManager::SetSfxLevel(int v)
+{
+    if (v < 0) v = 0; if (v > 100) v = 100;
+    sfxVol = v / 100.0f;
+    if (!ready) return;
+    if (shootOk) ::SetSoundVolume(sfxShoot, sfxVol);
+    if (hitOk) ::SetSoundVolume(sfxHit, sfxVol);
+    if (pickupOk) ::SetSoundVolume(sfxPickup, sfxVol);
+    if (levelUpOk) ::SetSoundVolume(sfxLevelUp, sfxVol);
+    if (bossOk) ::SetSoundVolume(sfxBoss, sfxVol);
+    if (voiceSpiderOk) ::SetSoundVolume(voiceSpider, sfxVol);
+    if (voiceKnightOk) ::SetSoundVolume(voiceKnight, sfxVol);
 }
 
 void AudioManager::StopMusic()

@@ -85,25 +85,26 @@ void HUD::DrawSubtitle(const char* speaker, const char* line, float alpha) const
     Text(line, screenWidth / 2.0f - TextWidth(line, size) / 2.0f, y, size, Color{ 255, 255, 255, a });
 }
 
-void HUD::DrawMenu(int bestTime, int bestLevel, int volume) const
+void HUD::DrawMenu(int bestTime, int bestLevel, int coins) const
 {
     ClearBackground(Color{ 15, 12, 20, 255 });
     const char* title = "DUNGEON SURVIVORS: D20";
-    Text(title, screenWidth / 2.0f - TextWidth(title, 46) / 2.0f, 150, 46, GOLD);
+    Text(title, screenWidth / 2.0f - TextWidth(title, 46) / 2.0f, 120, 46, GOLD);
     const char* sub = "Лагерь";
-    Text(sub, screenWidth / 2.0f - TextWidth(sub, 24) / 2.0f, 218, 24, LIGHTGRAY);
+    Text(sub, screenWidth / 2.0f - TextWidth(sub, 24) / 2.0f, 188, 24, LIGHTGRAY);
 
-    const char* play = "Нажми ENTER, чтобы начать вылазку";
-    Text(play, screenWidth / 2.0f - TextWidth(play, 28) / 2.0f, 330, 28, RAYWHITE);
+    const char* play = "ENTER — начать вылазку";
+    Text(play, screenWidth / 2.0f - TextWidth(play, 28) / 2.0f, 270, 28, RAYWHITE);
 
     const char* rec = TextFormat("Рекорд: %02d:%02d,  уровень %d", bestTime / 60, bestTime % 60, bestLevel);
-    Text(rec, screenWidth / 2.0f - TextWidth(rec, 22) / 2.0f, 400, 22, GOLD);
+    Text(rec, screenWidth / 2.0f - TextWidth(rec, 22) / 2.0f, 330, 22, GOLD);
+    const char* co = TextFormat("Монеты: %d", coins);
+    Text(co, screenWidth / 2.0f - TextWidth(co, 22) / 2.0f, 362, 22, YELLOW);
 
-    const char* vol = TextFormat("Громкость: %d%%   (< / >)", volume);
-    Text(vol, screenWidth / 2.0f - TextWidth(vol, 22) / 2.0f, 440, 22, LIGHTGRAY);
-
+    const char* m1 = "C — герой и карта     U — мета-прокачка     O — настройки";
+    Text(m1, screenWidth / 2.0f - TextWidth(m1, 20) / 2.0f, 425, 20, LIGHTGRAY);
     const char* hint = "WASD — движение,  ESC — пауза";
-    Text(hint, screenWidth / 2.0f - TextWidth(hint, 20) / 2.0f, 490, 20, GRAY);
+    Text(hint, screenWidth / 2.0f - TextWidth(hint, 20) / 2.0f, 462, 20, GRAY);
 }
 
 void HUD::DrawPause() const
@@ -119,25 +120,25 @@ void HUD::DrawGameOver(float survivalTime, int level, int bestTime, int bestLeve
 {
     DrawRectangle(0, 0, screenWidth, screenHeight, Color{ 0, 0, 0, 200 });
     const char* t = "ВЫ ПОГИБЛИ";
-    Text(t, screenWidth / 2.0f - TextWidth(t, 56) / 2.0f, 180, 56, RED);
+    Text(t, screenWidth / 2.0f - TextWidth(t, 56) / 2.0f, 160, 56, RED);
 
     int total = (int)survivalTime;
     const char* st = TextFormat("Продержался %02d:%02d, уровень %d", total / 60, total % 60, level);
-    Text(st, screenWidth / 2.0f - TextWidth(st, 26) / 2.0f, 280, 26, RAYWHITE);
+    Text(st, screenWidth / 2.0f - TextWidth(st, 26) / 2.0f, 250, 26, RAYWHITE);
 
     if (newRecord)
     {
         const char* nr = "НОВЫЙ РЕКОРД!";
-        Text(nr, screenWidth / 2.0f - TextWidth(nr, 30) / 2.0f, 320, 30, GOLD);
+        Text(nr, screenWidth / 2.0f - TextWidth(nr, 30) / 2.0f, 292, 30, GOLD);
     }
     else
     {
         const char* br = TextFormat("Рекорд: %02d:%02d, уровень %d", bestTime / 60, bestTime % 60, bestLevel);
-        Text(br, screenWidth / 2.0f - TextWidth(br, 22) / 2.0f, 322, 22, LIGHTGRAY);
+        Text(br, screenWidth / 2.0f - TextWidth(br, 22) / 2.0f, 294, 22, LIGHTGRAY);
     }
 
     const char* r = "Нажми ENTER, чтобы вернуться в лагерь";
-    Text(r, screenWidth / 2.0f - TextWidth(r, 24) / 2.0f, 380, 24, RAYWHITE);
+    Text(r, screenWidth / 2.0f - TextWidth(r, 24) / 2.0f, 360, 24, RAYWHITE);
 }
 
 void HUD::DrawLevelUp(const char* o1, const char* o2, const char* o3) const
