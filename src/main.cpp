@@ -9,6 +9,7 @@
 #include "loot.h"
 #include "audio.h"
 #include "hud.h"
+#include "savegame.h"
 
 // Состояния игры
 enum GameState { MENU, PLAYING, LEVEL_UP, PAUSED, GAME_OVER };
@@ -18,13 +19,16 @@ int main()
     const int screenWidth = 1280;
     const int screenHeight = 720;
 
-    InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition");
+    InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition v0.1");
     SetTargetFPS(60);
 
     AudioManager audio;
     audio.Init();
     HUD hud;
     hud.Init(screenWidth, screenHeight);
+
+    GameSave save = LoadGameSave();
+    if (audio.ready) SetMasterVolume(save.volume / 100.0f);
 
     TileMap map;
     Player player(map.GetSpawnPoint());
@@ -38,6 +42,7 @@ int main()
     float survivalTime = 0.0f;
     float subtitleTimer = 0.0f;
     int subtitleLine = -1;
+    bool newRecord = false;
     const char* bossSpeakers[2] = { "Королева пауков", "Чёрный рыцарь" };
     const char* bossLines[2] = { "Ты будешь кормом моих детей.", "Жалкая пародия." };
 
@@ -61,6 +66,7 @@ int main()
         survivalTime = 0.0f;
         subtitleTimer = 0.0f;
         subtitleLine = -1;
+        newRecord = false;
         camera.target = player.position;
     };
 
@@ -72,6 +78,21 @@ int main()
         if (state == MENU)
         {
             audio.PlayMenuMusic();
+
+            // Настройка громкости
+            if (IsKeyPressed(KEY_LEFT))
+            {
+                save.volume -= 5; if (save.volume < 0) save.volume = 0;
+                if (audio.ready) SetMasterVolume(save.volume / 100.0f);
+                SaveGameSave(save);
+            }
+            if (IsKeyPressed(KEY_RIGHT))
+            {
+                save.volume += 5; if (save.volume > 100) save.volume = 100;
+                if (audio.ready) SetMasterVolume(save.volume / 100.0f);
+                SaveGameSave(save);
+            }
+
             if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_SPACE))
             {
                 startNewGame();
@@ -105,6 +126,11 @@ int main()
             if (player.health <= 0)
             {
                 state = GAME_OVER;
+                newRecord = false;
+                int t = (int)survivalTime;
+                if (t > save.bestTime) { save.bestTime = t; newRecord = true; }
+                if (player.level > save.bestLevel) { save.bestLevel = player.level; newRecord = true; }
+                if (newRecord) SaveGameSave(save);
             }
             else if (player.TryLevelUp())
             {
@@ -144,7 +170,7 @@ int main()
 
             if (state == MENU)
             {
-                hud.DrawMenu();
+                hud.DrawMenu(save.bestTime, save.bestLevel, save.volume);
             }
             else
             {
@@ -171,7 +197,7 @@ int main()
                 else if (state == PAUSED)
                     hud.DrawPause();
                 else if (state == GAME_OVER)
-                    hud.DrawGameOver(survivalTime, player.level);
+                    hud.DrawGameOver(survivalTime, player.level, save.bestTime, save.bestLevel, newRecord);
             }
 
             DrawFPS(screenWidth - 90, screenHeight - 28);

@@ -24,8 +24,8 @@ public:
 
     void DrawGame(const Player& player, const Spawner& spawner, const Weapon& weapon, float survivalTime) const;
     void DrawSubtitle(const char* speaker, const char* line, float alpha) const;
-    void DrawMenu() const;
+    void DrawMenu(int bestTime, int bestLevel, int volume) const;
     void DrawPause() const;
-    void DrawGameOver(float survivalTime, int level) const;
+    void DrawGameOver(float survivalTime, int level, int bestTime, int bestLevel, bool newRecord) const;
     void DrawLevelUp(const char* o1, const char* o2, const char* o3) const;
 };

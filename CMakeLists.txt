@@ -27,6 +27,13 @@ add_executable(${PROJECT_NAME}
     src/loot.cpp
     src/audio.cpp
     src/hud.cpp
+    src/savegame.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} raylib)
+
+# Копируем папку assets рядом с исполняемым файлом,
+# чтобы игра находила шрифты/звук после сборки.
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/assets $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets)
