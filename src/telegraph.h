@@ -2,7 +2,7 @@
 #include "raylib.h"
 #include <vector>
 // ============================================================================
-//  telegraph.h — СИСТЕМА ТЕЛЕГРАФОВ (Фаза 2, Шаг 6-9)
+//  telegraph.h — СИСТЕМА ТЕЛЕГРАФОВ (Фаза 2, Шаг 6-9; лазер — Фаза 3)
 // ----------------------------------------------------------------------------
 //  Телеграф — это «предупреждение» об атаке: зона показывается заранее,
 //  заполняется за fillTime секунд, перед ударом мигает, затем бьёт один раз.
@@ -10,7 +10,7 @@
 //  Все тайминги берутся из tuning.h.
 // ============================================================================
 
-class Player;   // форвард-объявления, чтобы не тянуть тяжёлые заголовки в хеде
+class Player;   // форвард-объявления, чтобы не тянуть тяжёлые заголовки в хед
 class Effects;
 
 // Формы зоны телеграфа.
@@ -37,6 +37,11 @@ struct Telegraph {
     bool  triggered = false;  // удар уже нанесён (однократно)
     Color color = RED;
 
+    // Лазер (Фаза 3, Шаг 11-12): прицел следит за игроком, пока timer < lockAt,
+    // затем направление фиксируется — это и есть «окно на уход» до удара.
+    bool  track = false;      // следить ли за игроком (только для лазера-линии)
+    float lockAt = 0.0f;      // момент (по timer), когда направление фиксируется
+
     float Progress() const;            // 0..1
     bool  HitsPoint(Vector2 p) const;  // попадает ли точка в зону
     void  Draw() const;                // контур + заливка + мигание
@@ -56,7 +61,12 @@ public:
     Telegraph* SpawnLine(Vector2 origin, float angle, float length, float width, int damage, float fillTime, Color c);
     Telegraph* SpawnCone(Vector2 origin, float angle, float length, float halfAngle, int damage, float fillTime, Color c);
 
+    // Лазер (Фаза 3): линия из origin, которая следит за target до момента lockTime,
+    // затем фиксируется и по fillTime бьёт. target — начальное направление (обычно игрок).
+    Telegraph* SpawnLaser(Vector2 origin, Vector2 target, float length, float width, int damage, float fillTime, float lockTime, Color c);
+
     // Обновление: продвигает таймеры; на срабатывании бьёт игрока, если он в зоне.
+    // Для лазера во время слежения перенацеливает направление на игрока.
     void Update(float dt, Player& player, Effects& effects);
     void Clear();
     void Draw() const;        // обычная отрисовка зон (по земле)
