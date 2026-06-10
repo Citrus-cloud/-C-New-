@@ -20,6 +20,7 @@
 #include "director.h"   // менеджер волн и доступности приёмов (Фаза 1)
 #include "telegraph.h"  // система телеграфов-предупреждений (Фаза 2)
 #include "ranged.h"     // система дальних атак / снарядов врагов (Фаза 3)
+#include "hazards.h"    // система опасных зон/луж (Фаза 5)
 
 // Состояния игры. MENU/SELECT/META/SETTINGS — экраны лагеря (Фаза 6).
 enum GameState { MENU, SELECT, META, SETTINGS, PLAYING, LEVEL_UP, PAUSED, GAME_OVER };
@@ -55,6 +56,8 @@ int main()
     RangedSystem ranged(256);         // пул снарядов врагов (Фаза 3)
     spawner.SetTelegraphs(&telegraphs);   // враги «заказывают» зоны через спавнер
     spawner.SetRanged(&ranged);           // и выпускают снаряды через него (Фаза 3)
+    HazardSystem hazards(Tuning::kHazardPoolSize);   // пул опасных луж (Фаза 5)
+    spawner.SetHazards(&hazards);          // ядовитый след врагов (Фаза 5)
     Weapon weapon(300);
     ExpOrbs orbs(500);
     Traps traps;
@@ -98,9 +101,11 @@ int main()
         director.Reset();   // сброс времени забега и кулдаунов (Фаза 1)
         telegraphs.Clear();                 // очистка предупреждающих зон (Фаза 2)
         ranged.Clear();                     // очистка снарядов врагов (Фаза 3)
+        hazards.Clear();                    // очистка опасных луж (Фаза 5)
         spawner.SetTelegraphs(&telegraphs); // спавнер пересоздан — заново привязываем телеграфы
         spawner.SetRanged(&ranged);         // и систему снарядов (Фаза 3)
         spawner.SetEffects(&effects);       // и систему эффектов (Фаза 4)
+        spawner.SetHazards(&hazards);       // и систему опасных зон (Фаза 5)
         weapon = Weapon(300);
         orbs = ExpOrbs(500);
         traps = Traps();
@@ -211,12 +216,15 @@ int main()
                                   Tuning::kVolleySpread, Tuning::kVolleyDamage, PURPLE);
             if (IsKeyPressed(KEY_F6))   // тест: спавн врагов со всеми приёмами мобильности (Фаза 4)
                 spawner.SpawnMobilityTest(player.position, map);
+            if (IsKeyPressed(KEY_F7))   // тест: спавн врагов со всеми особыми способностями (Фаза 5)
+                spawner.SpawnSpecialTest(player.position, map);
             survivalTime += dt;
             director.Update(dt);   // продвигаем время забега (Фаза 1)
             player.Update(dt, map);
             spawner.Update(dt, player, map);
             telegraphs.Update(dt, player, effects);   // продвигаем зоны и наносим урон (Фаза 2)
             ranged.Update(dt, player, effects);       // движение снарядов и урон (Фаза 3)
+            hazards.Update(dt, player);               // тик урона от ядовитых луж (Фаза 5)
             if (player.gotHit)
             {
                 audio.Hit();
@@ -364,6 +372,7 @@ int main()
                     map.Draw(camera);
                     traps.Draw();
                     telegraphs.Draw();   // предупреждающие зоны — по земле, под сущностями (Фаза 2)
+                    hazards.Draw();      // ядовитые лужи — по земле, под сущностями (Фаза 5)
                     loot.Draw();
                     orbs.Draw();
                     spawner.Draw(camera, screenWidth, screenHeight);
@@ -374,6 +383,7 @@ int main()
                     effects.DrawWorld();
                     if (showDebug) telegraphs.DrawDebug();   // отладка: контуры зон (Фаза 2)
                     if (showDebug) ranged.DrawDebug();       // отладка: радиусы снарядов (Фаза 3)
+                    if (showDebug) hazards.DrawDebug();       // отладка: радиусы луж (Фаза 5)
                 EndMode2D();
 
                 effects.DrawScreen(screenWidth, screenHeight);
