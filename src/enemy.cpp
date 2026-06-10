@@ -19,7 +19,8 @@ Enemy::Enemy()
       blinkBurstLeft(0), blinkStepTimer(0.0f),
       flankSide(1), flankSwitchTimer(0.0f), drawYOffset(0.0f),
       special(SPEC_NONE), shielded(false), shieldTimer(0.0f), shieldCd(0.0f),
-      splitsOnDeath(false), wantSplit(false), poisonDropTimer(0.0f), healTimer(0.0f)
+      splitsOnDeath(false), wantSplit(false), poisonDropTimer(0.0f), healTimer(0.0f),
+      knockbackVel({ 0.0f, 0.0f })
 {
 }
 
@@ -71,6 +72,9 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
     wantSplit = false;
     poisonDropTimer = 0.0f;
     healTimer = 0.0f;
+
+    // Сброс отбрасывания (Фаза 6, Шаг 30).
+    knockbackVel = { 0.0f, 0.0f };
 
     switch (t)
     {
@@ -125,6 +129,18 @@ void Enemy::ApplySpecial(int kind)
                Tuning::GetRule(Tuning::ABIL_SHIELD).minInterval;
     poisonDropTimer = (float)GetRandomValue(0, 100) / 100.0f * Tuning::kPoisonDropInterval;
     healTimer = (float)GetRandomValue(0, 100) / 100.0f * Tuning::kHealInterval;
+}
+
+// Придаёт врагу импульс отбрасывания от попадания (Шаг 30).
+// Боссы не сдвигаются, танки сдвигаются хуже (kKnockbackTankResist).
+void Enemy::ApplyKnockback(Vector2 dir, float force)
+{
+    if (type == ENEMY_BOSS) return;
+    float len = sqrtf(dir.x * dir.x + dir.y * dir.y);
+    if (len < 0.0001f) return;
+    float resist = (type == ENEMY_TANK) ? Tuning::kKnockbackTankResist : 1.0f;
+    knockbackVel.x += dir.x / len * force * resist;
+    knockbackVel.y += dir.y / len * force * resist;
 }
 
 Rectangle Enemy::GetRect() const
@@ -358,6 +374,23 @@ void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map,
                 shieldTimer = Tuning::kShieldDuration;
             }
         }
+    }
+
+    // Отбрасывание (Шаг 30): смещаем по импульсу и плавно гасим его.
+    if (knockbackVel.x != 0.0f || knockbackVel.y != 0.0f)
+    {
+        float kx = knockbackVel.x * deltaTime;
+        float ky = knockbackVel.y * deltaTime;
+        position.x += kx;
+        if (map.CheckCollision(GetRect())) position.x -= kx;
+        position.y += ky;
+        if (map.CheckCollision(GetRect())) position.y -= ky;
+        float decay = Tuning::kKnockbackDecay * deltaTime;
+        if (decay > 1.0f) decay = 1.0f;
+        knockbackVel.x -= knockbackVel.x * decay;
+        knockbackVel.y -= knockbackVel.y * decay;
+        if (fabsf(knockbackVel.x) < 4.0f) knockbackVel.x = 0.0f;
+        if (fabsf(knockbackVel.y) < 4.0f) knockbackVel.y = 0.0f;
     }
 
     // Фаза 4: приёмы мобильности. Если приём занял кадр — обычное движение пропускаем.

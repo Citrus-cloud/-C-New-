@@ -106,10 +106,14 @@ public:
     float poisonDropTimer;  // Шаг 27: отсчёт до сброса следующей лужи
     float healTimer;        // Шаг 28: отсчёт до следующего лечебного импульса
 
+    // --- Отбрасывание (Фаза 6, Шаг 30) ---
+    Vector2 knockbackVel;   // текущая скорость отбрасывания (затухает), пикс/сек
+
     Enemy();
     void Spawn(Vector2 pos, EnemyType t);
     void ApplyBoss(const BossDef& def);   // применить статы и механики босса (Шаг 20-22)
     void ApplySpecial(int kind);          // назначить особую способность (Шаг 23-28)
+    void ApplyKnockback(Vector2 dir, float force);  // толчок от попадания (Шаг 30)
     void Update(float deltaTime, Vector2 playerPos, const TileMap& map,
                 TelegraphSystem* telegraphs = nullptr, Effects* effects = nullptr);
     void Draw() const;
