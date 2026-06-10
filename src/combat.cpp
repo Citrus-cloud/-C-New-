@@ -8,6 +8,13 @@ void DamageEnemy(Enemy& e, int dmg, ExpOrbs& orbs, LootDrops& loot, Effects& eff
 {
     if (!e.active || e.dying) return;
 
+    // Щит (Шаг 23): пока активен — урон не проходит, только синие искры отрикошета.
+    if (e.shielded)
+    {
+        effects.SpawnSparks(e.position, Color{ 120, 200, 255, 255 }, 4);
+        return;
+    }
+
     e.health -= dmg;
 
     // Эффекты попадания (Шаг 15, 18).
@@ -17,6 +24,9 @@ void DamageEnemy(Enemy& e, int dmg, ExpOrbs& orbs, LootDrops& loot, Effects& eff
     if (e.health <= 0)
     {
         e.Kill();
+
+        // Разделение при смерти (Шаг 24): помечаем врага — осколки породит спавнер.
+        if (e.splitsOnDeath) e.wantSplit = true;
 
         // Эффекты смерти (Шаг 16, 17).
         bool boss = (e.type == ENEMY_BOSS);

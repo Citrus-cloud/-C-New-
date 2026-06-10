@@ -20,6 +20,18 @@ enum MobilityKind {
     MOB_FLANK        // держит дистанцию и заходит сбоку (Шаг 21)
 };
 
+// Особые способности врага (Фаза 5, Шаг 23-28). Назначаются при спавне среди
+// разблокированных по времени (см. Spawner::MaybeAssignSpecial). Вся геометрия/
+// тайминги берутся из tuning.h. Призыв (SUMMON) остаётся механикой боссов.
+enum SpecialKind {
+    SPEC_NONE = 0,      // нет особой способности
+    SPEC_SHIELD,        // периодическая неуязвимость (Шаг 23)
+    SPEC_SPLIT,         // деление на осколки при смерти (Шаг 24)
+    SPEC_SLOW_AURA,     // аура замедления игрока (Шаг 26)
+    SPEC_POISON_TRAIL,  // ядовитый след/лужи (Шаг 27)
+    SPEC_HEALER         // лечение союзников (Шаг 28)
+};
+
 class TelegraphSystem;   // форвард: враг «заказывает» зоны (slam, путь рывка)
 class Effects;           // форвард: визуальные эффекты телепорта/приземления
 
@@ -84,9 +96,20 @@ public:
 
     float drawYOffset;      // визуальное смещение по Y (дуга прыжка)
 
+    // --- Особые способности (Фаза 5, Шаг 23-28) ---
+    int special;            // SpecialKind: назначенная особая способность
+    bool shielded;          // Шаг 23: сейчас активен щит (неуязвимость)
+    float shieldTimer;      // остаток времени активного щита, сек
+    float shieldCd;         // отсчёт до следующей активации щита, сек
+    bool splitsOnDeath;     // Шаг 24: делится ли на осколки при гибели
+    bool wantSplit;         // флаг: погиб и должен породить осколки (читает спавнер)
+    float poisonDropTimer;  // Шаг 27: отсчёт до сброса следующей лужи
+    float healTimer;        // Шаг 28: отсчёт до следующего лечебного импульса
+
     Enemy();
     void Spawn(Vector2 pos, EnemyType t);
     void ApplyBoss(const BossDef& def);   // применить статы и механики босса (Шаг 20-22)
+    void ApplySpecial(int kind);          // назначить особую способность (Шаг 23-28)
     void Update(float deltaTime, Vector2 playerPos, const TileMap& map,
                 TelegraphSystem* telegraphs = nullptr, Effects* effects = nullptr);
     void Draw() const;

@@ -17,7 +17,9 @@ Enemy::Enemy()
       jumping(false), jumpTimer(0.0f), jumpDuration(Tuning::kJumpDuration),
       jumpStart({ 0.0f, 0.0f }), jumpEnd({ 0.0f, 0.0f }),
       blinkBurstLeft(0), blinkStepTimer(0.0f),
-      flankSide(1), flankSwitchTimer(0.0f), drawYOffset(0.0f)
+      flankSide(1), flankSwitchTimer(0.0f), drawYOffset(0.0f),
+      special(SPEC_NONE), shielded(false), shieldTimer(0.0f), shieldCd(0.0f),
+      splitsOnDeath(false), wantSplit(false), poisonDropTimer(0.0f), healTimer(0.0f)
 {
 }
 
@@ -60,6 +62,16 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
     flankSwitchTimer = Tuning::kFlankSwitch;
     drawYOffset = 0.0f;
 
+    // Сброс особых способностей (Фаза 5) — конкретную назначает спавнер.
+    special = SPEC_NONE;
+    shielded = false;
+    shieldTimer = 0.0f;
+    shieldCd = 0.0f;
+    splitsOnDeath = false;
+    wantSplit = false;
+    poisonDropTimer = 0.0f;
+    healTimer = 0.0f;
+
     switch (t)
     {
         case ENEMY_FAST:
@@ -99,6 +111,20 @@ void Enemy::ApplyBoss(const BossDef& def)
         mobilityCdMax = Tuning::kBossDashCooldown;
         mobilityCd = mobilityCdMax * 0.5f;
     }
+}
+
+// Назначает особую способность врага (Шаг 23-28).
+// Таймеры десинхронизируются, чтобы враги не действовали «в унисон».
+void Enemy::ApplySpecial(int kind)
+{
+    special = kind;
+    splitsOnDeath = (kind == SPEC_SPLIT);
+    shielded = false;
+    shieldTimer = 0.0f;
+    shieldCd = (float)GetRandomValue(0, 100) / 100.0f *
+               Tuning::GetRule(Tuning::ABIL_SHIELD).minInterval;
+    poisonDropTimer = (float)GetRandomValue(0, 100) / 100.0f * Tuning::kPoisonDropInterval;
+    healTimer = (float)GetRandomValue(0, 100) / 100.0f * Tuning::kHealInterval;
 }
 
 Rectangle Enemy::GetRect() const
@@ -311,6 +337,29 @@ void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map,
 
     walkAnim.Update(deltaTime);
 
+    // Щит (Шаг 23): периодическая неуязвимость. Сам урон блокируется в DamageEnemy.
+    if (special == SPEC_SHIELD)
+    {
+        if (shielded)
+        {
+            shieldTimer -= deltaTime;
+            if (shieldTimer <= 0.0f)
+            {
+                shielded = false;
+                shieldCd = Tuning::GetRule(Tuning::ABIL_SHIELD).minInterval;
+            }
+        }
+        else
+        {
+            shieldCd -= deltaTime;
+            if (shieldCd <= 0.0f)
+            {
+                shielded = true;
+                shieldTimer = Tuning::kShieldDuration;
+            }
+        }
+    }
+
     // Фаза 4: приёмы мобильности. Если приём занял кадр — обычное движение пропускаем.
     if (UpdateMobility(deltaTime, playerPos, map, telegraphs, effects)) return;
 
@@ -380,6 +429,20 @@ void Enemy::Draw() const
 
     Vector2 drawPos = { position.x, position.y + drawYOffset };
 
+    // Особые способности (Фаза 5): «наземные» кольца рисуем ПОД сущностью.
+    if (!dying)
+    {
+        if (special == SPEC_SLOW_AURA)   // Шаг 26: полупрозрачная аура замедления
+        {
+            DrawCircleV(position, Tuning::kSlowAuraRadius, Color{ 80, 120, 255, 28 });
+            DrawCircleLines((int)position.x, (int)position.y, Tuning::kSlowAuraRadius,
+                            Color{ 120, 160, 255, 90 });
+        }
+        if (special == SPEC_HEALER)      // Шаг 28: зелёное кольцо радиуса лечения
+            DrawCircleLines((int)position.x, (int)position.y, Tuning::kHealerRadius,
+                            Color{ 80, 255, 140, 60 });
+    }
+
     if (dying)
     {
         if (deathAnim.Valid())
@@ -410,6 +473,13 @@ void Enemy::Draw() const
         if (type == ENEMY_BOSS)
             DrawRectangleLines((int)(drawPos.x - size), (int)(drawPos.y - size),
                                (int)(size * 2.0f), (int)(size * 2.0f), YELLOW);
+    }
+
+    // Щит (Шаг 23): синие кольца ПОВЕРХ врага, пока активна неуязвимость.
+    if (shielded)
+    {
+        DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + 6.0f, Color{ 90, 180, 255, 255 });
+        DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + 10.0f, Color{ 90, 180, 255, 160 });
     }
 
     DrawHealthBar();
