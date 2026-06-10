@@ -1,5 +1,8 @@
 #include "enemy.h"
 #include "pathfinding.h"
+#include "telegraph.h"   // враг «заказывает» зоны: slam при приземлении, линия пути рывка
+#include "effects.h"     // визуальные эффекты телепорта/блинка/приземления
+#include "tuning.h"      // вся геометрия и тайминги приёмов мобильности
 #include <cmath>
 
 Enemy::Enemy()
@@ -7,8 +10,14 @@ Enemy::Enemy()
       type(ENEMY_GRUNT), size(16.0f), color(PURPLE), damage(5), xpValue(1),
       facingLeft(false), dying(false), deathTimer(0.0f),
       pathIndex(0), repathTimer(0.0f),
-      dashing(false), dashTimer(0.0f), dashCooldown(3.0f), dashDir({ 0.0f, 0.0f }),
-      bossId(-1), canDash(false), canSummon(false), summonTimer(0.0f)
+      dashing(false), dashTimer(0.0f), dashDir({ 0.0f, 0.0f }),
+      dashTelegraphing(false), dashTelegraphTimer(0.0f),
+      bossId(-1), canDash(false), canSummon(false), summonTimer(0.0f),
+      mobility(MOB_NONE), mobilityCd(0.0f), mobilityCdMax(5.0f),
+      jumping(false), jumpTimer(0.0f), jumpDuration(Tuning::kJumpDuration),
+      jumpStart({ 0.0f, 0.0f }), jumpEnd({ 0.0f, 0.0f }),
+      blinkBurstLeft(0), blinkStepTimer(0.0f),
+      flankSide(1), flankSwitchTimer(0.0f), drawYOffset(0.0f)
 {
 }
 
@@ -23,15 +32,33 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
     path.clear();
     pathIndex = 0;
     repathTimer = 0.0f;
+
     dashing = false;
     dashTimer = 0.0f;
     dashDir = { 0.0f, 0.0f };
+    dashTelegraphing = false;
+    dashTelegraphTimer = 0.0f;
 
     // По умолчанию обычный враг (не босс).
     bossId = -1;
     canDash = false;
     canSummon = false;
     summonTimer = 0.0f;
+
+    // Сброс мобильности (Фаза 4) — конкретный приём назначает спавнер отдельно.
+    mobility = MOB_NONE;
+    mobilityCd = 0.0f;
+    mobilityCdMax = 5.0f;
+    jumping = false;
+    jumpTimer = 0.0f;
+    jumpDuration = Tuning::kJumpDuration;
+    jumpStart = pos;
+    jumpEnd = pos;
+    blinkBurstLeft = 0;
+    blinkStepTimer = 0.0f;
+    flankSide = (GetRandomValue(0, 1) == 0) ? -1 : 1;
+    flankSwitchTimer = Tuning::kFlankSwitch;
+    drawYOffset = 0.0f;
 
     switch (t)
     {
@@ -43,7 +70,6 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
             break;
         case ENEMY_BOSS:
             health = 700; speed = 95.0f; size = 38.0f; color = MAROON; damage = 20; xpValue = 25;
-            dashCooldown = 2.5f;
             break;
         case ENEMY_GRUNT:
         default:
@@ -67,7 +93,12 @@ void Enemy::ApplyBoss(const BossDef& def)
     canDash = def.canDash;
     canSummon = def.canSummon;
     summonTimer = def.summonInterval;
-    if (canDash) dashCooldown = 2.5f;
+    // Рывок босса использует тот же механизм, что и MOB_DASH (Фаза 4), но со своим кулдауном.
+    if (canDash)
+    {
+        mobilityCdMax = Tuning::kBossDashCooldown;
+        mobilityCd = mobilityCdMax * 0.5f;
+    }
 }
 
 Rectangle Enemy::GetRect() const
@@ -105,7 +136,166 @@ static void MoveToward(Vector2& pos, Vector2 target, float dist, float halfSize,
     if (map.CheckCollision({ pos.x - halfSize, pos.y - halfSize, halfSize * 2.0f, halfSize * 2.0f })) pos.y -= my;
 }
 
-void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map)
+// === Фаза 4: приёмы мобильности врага ======================================
+// Возвращает true, если приём занял этот кадр (обычное движение пропускаем).
+bool Enemy::UpdateMobility(float dt, Vector2 playerPos, const TileMap& map,
+                           TelegraphSystem* telegraphs, Effects* effects)
+{
+    // 1) Прыжок в полёте (Шаг 17): летим по дуге, на приземлении создаём slam-зону.
+    if (jumping)
+    {
+        jumpTimer += dt;
+        float t = (jumpDuration > 0.0f) ? jumpTimer / jumpDuration : 1.0f;
+        if (t > 1.0f) t = 1.0f;
+        position.x = jumpStart.x + (jumpEnd.x - jumpStart.x) * t;
+        position.y = jumpStart.y + (jumpEnd.y - jumpStart.y) * t;
+        drawYOffset = -sinf(t * PI) * Tuning::kJumpArcHeight;   // визуальная дуга прыжка
+        if (t >= 1.0f)
+        {
+            jumping = false;
+            drawYOffset = 0.0f;
+            position = jumpEnd;
+            // Приземление = удар по площади через систему телеграфов (она и наносит урон).
+            if (telegraphs)
+                telegraphs->SpawnCircle(position, Tuning::kSlamRadius, Tuning::kSlamDamage,
+                                        Tuning::kSlamFill, Color{ 255, 140, 40, 255 });
+            if (effects) { effects->SpawnDust(position, 14); effects->Shake(4.0f, 0.15f); }
+        }
+        return true;
+    }
+
+    // 2) Подготовка рывка (Шаг 20): стоим, показывая линию-предупреждение пути.
+    if (dashTelegraphing)
+    {
+        dashTelegraphTimer -= dt;
+        if (dashTelegraphTimer <= 0.0f)
+        {
+            dashTelegraphing = false;
+            dashing = true;
+            dashTimer = Tuning::kDashDuration;
+        }
+        return true;
+    }
+
+    // 3) Активный рывок (Шаг 20).
+    if (dashing)
+    {
+        float ds = Tuning::kDashSpeed * dt;
+        float mx = dashDir.x * ds, my = dashDir.y * ds;
+        position.x += mx;
+        if (map.CheckCollision(GetRect())) position.x -= mx;
+        position.y += my;
+        if (map.CheckCollision(GetRect())) position.y -= my;
+        dashTimer -= dt;
+        if (dashTimer <= 0.0f) dashing = false;
+        return true;
+    }
+
+    // 4) Серия блинков (Шаг 19): короткие телепорты к игроку с паузой между ними.
+    if (blinkBurstLeft > 0)
+    {
+        blinkStepTimer -= dt;
+        if (blinkStepTimer <= 0.0f)
+        {
+            float dx = playerPos.x - position.x, dy = playerPos.y - position.y;
+            float len = sqrtf(dx * dx + dy * dy);
+            if (len > 0.01f) { dx /= len; dy /= len; }
+            Vector2 np = { position.x + dx * Tuning::kBlinkDistance, position.y + dy * Tuning::kBlinkDistance };
+            if (effects) effects->SpawnSparks(position, Color{ 120, 180, 255, 255 }, 8);
+            // Не блинкуем в стену.
+            Rectangle r = { np.x - size, np.y - size, size * 2.0f, size * 2.0f };
+            if (!map.CheckCollision(r)) position = np;
+            if (effects) effects->SpawnSparks(position, Color{ 120, 180, 255, 255 }, 8);
+            blinkBurstLeft--;
+            blinkStepTimer = Tuning::kBlinkStep;
+        }
+        return true;
+    }
+
+    // --- Кулдаун и запуск нового приёма ---
+    if (mobilityCd > 0.0f) mobilityCd -= dt;
+
+    int kind = mobility;
+    if (kind == MOB_NONE && canDash) kind = MOB_DASH;   // боссы с рывком используют тот же приём
+
+    // Фланг — пассивное движение (обрабатывается в обычном перемещении), кадр не «занимает».
+    if (kind == MOB_NONE || kind == MOB_FLANK) return false;
+    if (mobilityCd > 0.0f) return false;
+
+    float dx = playerPos.x - position.x, dy = playerPos.y - position.y;
+    float dist = sqrtf(dx * dx + dy * dy);
+    float nx = (dist > 0.01f) ? dx / dist : 1.0f;
+    float ny = (dist > 0.01f) ? dy / dist : 0.0f;
+
+    switch (kind)
+    {
+        case MOB_JUMP_SLAM:
+            if (dist <= Tuning::kJumpTriggerRange && dist >= Tuning::kJumpMinRange)
+            {
+                jumping = true;
+                jumpTimer = 0.0f;
+                jumpDuration = Tuning::kJumpDuration;
+                jumpStart = position;
+                float jd = (dist < Tuning::kJumpMaxDist) ? dist : Tuning::kJumpMaxDist;
+                jumpEnd = { position.x + nx * jd, position.y + ny * jd };
+                mobilityCd = mobilityCdMax;
+                return true;
+            }
+            break;
+
+        case MOB_TELEPORT:
+            if (dist >= Tuning::kTeleportTriggerRange)
+            {
+                if (effects) effects->SpawnSparks(position, Color{ 200, 120, 255, 255 }, 14);
+                float a = (float)GetRandomValue(0, 359) * DEG2RAD;
+                Vector2 np = { playerPos.x + cosf(a) * Tuning::kTeleportRange,
+                               playerPos.y + sinf(a) * Tuning::kTeleportRange };
+                np = map.FindFreeSpot(np, size);
+                position = np;
+                if (effects) effects->SpawnSparks(position, Color{ 200, 120, 255, 255 }, 14);
+                mobilityCd = mobilityCdMax;
+                return true;
+            }
+            break;
+
+        case MOB_BLINK:
+            if (dist >= Tuning::kBlinkMinRange)
+            {
+                blinkBurstLeft = Tuning::kBlinkBurst;
+                blinkStepTimer = 0.0f;
+                mobilityCd = mobilityCdMax;
+                return true;
+            }
+            break;
+
+        case MOB_DASH:
+            // Боссы рвутся с любой дистанции; обычные враги — только вблизи (kDashTriggerRange).
+            if (canDash || dist <= Tuning::kDashTriggerRange)
+            {
+                dashDir = { nx, ny };
+                dashTelegraphing = true;
+                dashTelegraphTimer = Tuning::kDashTelegraphTime;
+                if (telegraphs)
+                {
+                    float ang = atan2f(ny, nx);
+                    telegraphs->SpawnLine(position, ang, Tuning::kDashLength, Tuning::kDashWidth,
+                                          Tuning::kDashTelegraphDamage, Tuning::kDashTelegraphTime,
+                                          Color{ 255, 90, 90, 255 });
+                }
+                mobilityCd = mobilityCdMax;
+                return true;
+            }
+            break;
+
+        default:
+            break;
+    }
+
+    return false;
+}
+
+void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map,
+                   TelegraphSystem* telegraphs, Effects* effects)
 {
     if (!active) return;
 
@@ -121,40 +311,25 @@ void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map)
 
     walkAnim.Update(deltaTime);
 
-    // РЫВОК: только у боссов с механикой рывка (Чёрный рыцарь).
-    if (canDash)
-    {
-        if (dashing)
-        {
-            float ds = 750.0f * deltaTime;
-            float mx = dashDir.x * ds, my = dashDir.y * ds;
-            position.x += mx;
-            if (map.CheckCollision(GetRect())) position.x -= mx;
-            position.y += my;
-            if (map.CheckCollision(GetRect())) position.y -= my;
-            dashTimer -= deltaTime;
-            if (dashTimer <= 0.0f) dashing = false;
-            return;
-        }
-        else
-        {
-            dashCooldown -= deltaTime;
-            if (dashCooldown <= 0.0f)
-            {
-                Vector2 d = { playerPos.x - position.x, playerPos.y - position.y };
-                float len = sqrtf(d.x * d.x + d.y * d.y);
-                if (len > 0.01f) { d.x /= len; d.y /= len; }
-                dashDir = d;
-                dashing = true;
-                dashTimer = 0.35f;
-                dashCooldown = 3.0f;
-                return;
-            }
-        }
-    }
+    // Фаза 4: приёмы мобильности. Если приём занял кадр — обычное движение пропускаем.
+    if (UpdateMobility(deltaTime, playerPos, map, telegraphs, effects)) return;
 
     float step = speed * deltaTime;
 
+    // Фланг (Шаг 21): держим дистанцию и заходим сбоку, а не в лоб.
+    if (mobility == MOB_FLANK)
+    {
+        flankSwitchTimer -= deltaTime;
+        if (flankSwitchTimer <= 0.0f) { flankSide = -flankSide; flankSwitchTimer = Tuning::kFlankSwitch; }
+        float ang = atan2f(position.y - playerPos.y, position.x - playerPos.x);
+        ang += (float)flankSide * Tuning::kFlankAngle;
+        Vector2 target = { playerPos.x + cosf(ang) * Tuning::kFlankRadius,
+                           playerPos.y + sinf(ang) * Tuning::kFlankRadius };
+        MoveToward(position, target, step, size, map);
+        return;
+    }
+
+    // Обычное преследование (прямая видимость + A*).
     if (HasLineOfSight(map, position, playerPos))
     {
         path.clear();
@@ -192,7 +367,7 @@ void Enemy::DrawHealthBar() const
     float w = boss ? size * 2.4f : size * 2.0f;
     float barH = boss ? 8.0f : 4.0f;
     float x = position.x - w / 2.0f;
-    float y = position.y - size - (boss ? 16.0f : 8.0f);
+    float y = position.y - size - (boss ? 16.0f : 8.0f) + drawYOffset;
 
     DrawRectangle((int)(x - 1), (int)(y - 1), (int)(w + 2), (int)(barH + 2), Fade(BLACK, 0.6f));
     DrawRectangle((int)x, (int)y, (int)w, (int)barH, Color{ 60, 60, 60, 255 });
@@ -203,6 +378,8 @@ void Enemy::Draw() const
 {
     if (!active) return;
 
+    Vector2 drawPos = { position.x, position.y + drawYOffset };
+
     if (dying)
     {
         if (deathAnim.Valid())
@@ -210,26 +387,28 @@ void Enemy::Draw() const
             float target = size * 2.6f;
             float h = (float)deathAnim.FrameHeight();
             float sc = (h > 0.0f) ? target / h : 1.0f;
-            deathAnim.Draw(position, sc, facingLeft, WHITE);
+            deathAnim.Draw(drawPos, sc, facingLeft, WHITE);
         }
         return;
     }
+
+    bool charging = dashing || dashTelegraphing;   // рывок и его подготовка — оранжевая подсветка
 
     if (walkAnim.Valid())
     {
         float target = size * 2.6f;
         float h = (float)walkAnim.FrameHeight();
         float sc = (h > 0.0f) ? target / h : 1.0f;
-        Color tint = dashing ? Color{ 255, 180, 120, 255 } : WHITE;
-        walkAnim.Draw(position, sc, facingLeft, tint);
+        Color tint = charging ? Color{ 255, 180, 120, 255 } : WHITE;
+        walkAnim.Draw(drawPos, sc, facingLeft, tint);
     }
     else
     {
-        Color c = dashing ? ORANGE : color;
-        DrawRectangle((int)(position.x - size), (int)(position.y - size),
+        Color c = charging ? ORANGE : color;
+        DrawRectangle((int)(drawPos.x - size), (int)(drawPos.y - size),
                       (int)(size * 2.0f), (int)(size * 2.0f), c);
         if (type == ENEMY_BOSS)
-            DrawRectangleLines((int)(position.x - size), (int)(position.y - size),
+            DrawRectangleLines((int)(drawPos.x - size), (int)(drawPos.y - size),
                                (int)(size * 2.0f), (int)(size * 2.0f), YELLOW);
     }
 

@@ -9,6 +9,7 @@
 class TextureManager;
 class TelegraphSystem;   // система телеграфов (Фаза 2)
 class RangedSystem;      // система дальних атак / снарядов (Фаза 3)
+class Effects;           // визуальные эффекты (Фаза 4: телепорт, приземление)
 
 class Spawner
 {
@@ -32,9 +33,11 @@ public:
     void LoadArt(TextureManager& textures);
     void SetTelegraphs(TelegraphSystem* t);   // привязка системы телеграфов (Фаза 2)
     void SetRanged(RangedSystem* r);           // привязка системы снарядов (Фаза 3)
+    void SetEffects(Effects* e);               // привязка системы эффектов (Фаза 4)
     Enemy* GetInactive();
     void SpawnWave(Vector2 center, const TileMap& map);
     void SpawnBoss(Vector2 center, const TileMap& map);
+    void SpawnMobilityTest(Vector2 center, const TileMap& map);   // отладка приёмов мобильности (F6, Шаг 22)
     void Update(float deltaTime, Player& player, const TileMap& map);
     void Draw(Camera2D camera, int screenW, int screenH) const;   // culling (Шаг 28)
     int ActiveCount() const;
@@ -45,5 +48,7 @@ private:
     Animation artEnemyDeath, artBossDeath;
     TelegraphSystem* telegraphs;   // куда враги «заказывают» зоны (может быть nullptr)
     RangedSystem* ranged;          // куда враги выпускают снаряды (может быть nullptr)
+    Effects* effects;              // визуальные эффекты приёмов мобильности (может быть nullptr)
     void AssignArt(Enemy* e, EnemyType t);
+    void MaybeAssignMobility(Enemy* e);   // назначить приём мобильности при спавне (Фаза 4)
 };

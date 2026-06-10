@@ -11,7 +11,7 @@ Spawner::Spawner(int poolSize)
       bossTimer(0.0f), bossInterval(Tuning::kBossInterval), elapsed(0.0f),
       bossEventLine(-1), bossSpawnCount(0), telegraphTimer(0.0f),
       shooterTimer(0.0f), bossRangedTimer(0.0f), bossRangedPattern(0),
-      telegraphs(nullptr), ranged(nullptr)
+      telegraphs(nullptr), ranged(nullptr), effects(nullptr)
 {
     enemies.resize(poolSize);
 }
@@ -24,6 +24,11 @@ void Spawner::SetTelegraphs(TelegraphSystem* t)
 void Spawner::SetRanged(RangedSystem* r)
 {
     ranged = r;
+}
+
+void Spawner::SetEffects(Effects* e)
+{
+    effects = e;
 }
 
 void Spawner::LoadArt(TextureManager& tex)
@@ -59,6 +64,42 @@ void Spawner::AssignArt(Enemy* e, EnemyType t)
     e->deathAnim = (t == ENEMY_BOSS) ? artBossDeath : artEnemyDeath;
 }
 
+// Назначает обычному врагу приём мобильности (Фаза 4). С вероятностью kMobilityChance
+// выбирает один из РАЗБЛОКИРОВАННЫХ к текущему времени приёмов по их весам из kAbilityRules.
+void Spawner::MaybeAssignMobility(Enemy* e)
+{
+    if (!e || e->type == ENEMY_BOSS) return;
+    if (GetRandomValue(0, 99) >= Tuning::kMobilityChance) return;
+
+    const Tuning::AbilityId ids[5]  = { Tuning::ABIL_JUMP_SLAM, Tuning::ABIL_TELEPORT,
+                                        Tuning::ABIL_BLINK, Tuning::ABIL_DASH, Tuning::ABIL_FLANK };
+    const int               kinds[5] = { MOB_JUMP_SLAM, MOB_TELEPORT, MOB_BLINK, MOB_DASH, MOB_FLANK };
+
+    // Суммарный вес разблокированных приёмов.
+    float total = 0.0f;
+    for (int i = 0; i < 5; i++)
+        if (Tuning::IsUnlockedAt(ids[i], elapsed)) total += Tuning::GetRule(ids[i]).weight;
+    if (total <= 0.0f) return;
+
+    // Взвешенный случайный выбор.
+    float r = (float)GetRandomValue(0, 10000) / 10000.0f * total;
+    for (int i = 0; i < 5; i++)
+    {
+        if (!Tuning::IsUnlockedAt(ids[i], elapsed)) continue;
+        r -= Tuning::GetRule(ids[i]).weight;
+        if (r <= 0.0f)
+        {
+            e->mobility = kinds[i];
+            float cd = Tuning::GetRule(ids[i]).minInterval;
+            if (cd < 1.0f) cd = 1.0f;   // флангу кулдаун не нужен, но держим значение валидным
+            e->mobilityCdMax = cd;
+            // Десинхронизируем первый запуск, чтобы враги не применяли приём одновременно.
+            e->mobilityCd = (float)GetRandomValue(0, (int)(cd * 1000.0f)) / 1000.0f;
+            break;
+        }
+    }
+}
+
 Enemy* Spawner::GetInactive()
 {
     for (auto& e : enemies)
@@ -87,6 +128,7 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
 
         e->Spawn(pos, t);
         AssignArt(e, t);
+        MaybeAssignMobility(e);   // Фаза 4: возможный приём перемещения
     }
 }
 
@@ -111,6 +153,26 @@ void Spawner::SpawnBoss(Vector2 center, const TileMap& map)
     else if (bossId == BOSS_BLACK_KNIGHT && artKnightWalk.Valid()) e->walkAnim = artKnightWalk;
 
     bossEventLine = def.voiceLine;
+}
+
+// Отладка (F6, Шаг 22): спавним по одному врагу с каждым приёмом мобильности
+// вокруг точки center, игнорируя время разблокировки — для быстрой проверки.
+void Spawner::SpawnMobilityTest(Vector2 center, const TileMap& map)
+{
+    const int kinds[5] = { MOB_JUMP_SLAM, MOB_TELEPORT, MOB_BLINK, MOB_DASH, MOB_FLANK };
+    for (int i = 0; i < 5; i++)
+    {
+        Enemy* e = GetInactive();
+        if (!e) break;
+        float ang = (float)i / 5.0f * 2.0f * PI;
+        Vector2 pos = { center.x + cosf(ang) * 340.0f, center.y + sinf(ang) * 340.0f };
+        pos = map.FindFreeSpot(pos, 16.0f);
+        e->Spawn(pos, ENEMY_GRUNT);
+        AssignArt(e, ENEMY_GRUNT);
+        e->mobility = kinds[i];
+        e->mobilityCdMax = 3.0f;
+        e->mobilityCd = 0.5f;
+    }
 }
 
 void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
@@ -138,7 +200,8 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
     Color bossColor = Color{ 230, 60, 60, 255 };
     for (auto& e : enemies)
     {
-        e.Update(deltaTime, player.position, map);
+        // Фаза 4: враги получают доступ к телеграфам и эффектам для приёмов мобильности.
+        e.Update(deltaTime, player.position, map, telegraphs, effects);
         if (e.active && !e.dying && e.type == ENEMY_BOSS)
         {
             bossActive = true;
@@ -162,6 +225,7 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
                     mp = map.FindFreeSpot(mp, 12.0f);
                     m->Spawn(mp, ENEMY_FAST);
                     AssignArt(m, ENEMY_FAST);
+                    MaybeAssignMobility(m);   // призванные миньоны тоже могут быть мобильными
                 }
             }
         }

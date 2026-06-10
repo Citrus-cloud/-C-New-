@@ -254,7 +254,9 @@ void TelegraphSystem::Update(float dt, Player& player, Effects& effects)
                 // Срабатывание: урон один раз, если игрок в зоне.
                 t.triggered = true;
                 t.linger = Tuning::kTelegraphLinger;
-                if (t.HitsPoint(player.position))
+                // Урон и реакции — только для зон с уроном. Предупреждающие линии
+                // с damage = 0 (например, путь рывка, Фаза 4) ничего не наносят.
+                if (t.damage > 0 && t.HitsPoint(player.position))
                 {
                     player.TakeDamage(t.damage);
                     effects.SpawnBlood(player.position, 6);

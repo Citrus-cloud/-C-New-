@@ -89,4 +89,120 @@ inline constexpr float kBossRangedInterval = 4.5f;   // пауза между д
 //  Перечень всех приёмов, которые будут добавляться в следующих фазах.
 //  Они объявлены заранее, чтобы менеджер волн (director) и враги
 //  могли ссылаться на них уже сейчас. Реализация — по фазам плана v0.3.
-//
+// ---------------------------------------------------------------------------
+enum AbilityId {
+    ABIL_RANGED_SHOOTER = 0, // дальние снаряды с упреждением (Фаза 3)
+    ABIL_LASER,              // лазер с задержкой и фиксацией (Фаза 3)
+    ABIL_VOLLEY,             // веер/залп снарядов, босс-паттерн (Фаза 3)
+    ABIL_JUMP_SLAM,          // прыжок-наскок с ударом по площади (Фаза 4)
+    ABIL_TELEPORT,           // телепорт к игроку (Фаза 4)
+    ABIL_BLINK,              // короткие блинк-телепорты (Фаза 4)
+    ABIL_DASH,               // разгон-рывок с телеграфом пути (Фаза 4)
+    ABIL_FLANK,              // окружение / заход сбоку (Фаза 4)
+    ABIL_SHIELD,             // временный щит/неуязвимость (Фаза 5)
+    ABIL_SPLIT,              // разделение при смерти (Фаза 5)
+    ABIL_SUMMON,             // призыв миньонов (Фаза 5)
+    ABIL_SLOW_AURA,          // аура замедления (Фаза 5)
+    ABIL_POISON_TRAIL,       // ядовитый след/лужи (Фаза 5)
+    ABIL_HEALER,             // лечение/усиление союзников (Фаза 5)
+    ABILITY_COUNT
+};
+
+// Правило появления и использования одного приёма.
+struct AbilityRule {
+    const char* name;        // короткое имя для отладки (латиница, читаемо без шрифта)
+    float       unlockTime;  // с какой секунды забега приём доступен
+    float       minInterval; // мин. пауза между использованиями (кулдаун), сек; 0 = пассивный
+    float       weight;      // относительный вес выбора приёма (для будущего director)
+    bool        enabled;     // глобальный выключатель приёма
+};
+
+// Таблица правил. Индекс = AbilityId. Меняй значения здесь — и весь баланс
+// поведения врагов поедет за тобой. Времена подобраны по нарастанию сложности.
+inline const AbilityRule kAbilityRules[ABILITY_COUNT] = {
+    /* ABIL_RANGED_SHOOTER */ { "Ranged",   20.0f,  4.0f, 1.5f, true },
+    /* ABIL_LASER          */ { "Laser",    45.0f,  6.0f, 1.0f, true },
+    /* ABIL_VOLLEY         */ { "Volley",   90.0f, 10.0f, 0.8f, true },
+    /* ABIL_JUMP_SLAM      */ { "JumpSlam", 30.0f,  7.0f, 1.0f, true },
+    /* ABIL_TELEPORT       */ { "Teleport", 60.0f,  8.0f, 0.8f, true },
+    /* ABIL_BLINK          */ { "Blink",    75.0f,  5.0f, 0.7f, true },
+    /* ABIL_DASH           */ { "Dash",     15.0f,  5.0f, 1.2f, true },
+    /* ABIL_FLANK          */ { "Flank",    25.0f,  0.0f, 1.0f, true },
+    /* ABIL_SHIELD         */ { "Shield",   70.0f, 12.0f, 0.6f, true },
+    /* ABIL_SPLIT          */ { "Split",    40.0f,  0.0f, 1.0f, true },
+    /* ABIL_SUMMON         */ { "Summon",   30.0f,  8.0f, 1.0f, true },
+    /* ABIL_SLOW_AURA      */ { "SlowAura", 50.0f,  0.0f, 0.8f, true },
+    /* ABIL_POISON_TRAIL   */ { "Poison",   55.0f,  0.0f, 0.8f, true },
+    /* ABIL_HEALER         */ { "Healer",   65.0f,  0.0f, 0.7f, true },
+};
+
+// --- Хелперы доступности и темпа (Шаг 4) ---
+
+// Правило по идентификатору.
+inline const AbilityRule& GetRule(AbilityId id) { return kAbilityRules[id]; }
+
+// Разблокирован ли приём к моменту времени elapsed.
+inline bool IsUnlockedAt(AbilityId id, float elapsed) {
+    const AbilityRule& r = kAbilityRules[id];
+    return r.enabled && elapsed >= r.unlockTime;
+}
+
+// Текущий интервал между волнами (с учётом роста сложности).
+inline float CurrentSpawnInterval(float elapsed) {
+    float v = kSpawnBaseInterval - elapsed * kSpawnRampPerSec;
+    return (v < kSpawnMinInterval) ? kSpawnMinInterval : v;
+}
+
+// Текущий размер волны (растёт со временем до потолка).
+inline int CurrentWaveCount(float elapsed) {
+    int c = kWaveBaseCount + (int)(elapsed / kWaveCountRampDiv);
+    return (c > kWaveMaxCount) ? kWaveMaxCount : c;
+}
+
+// ---------------------------------------------------------------------------
+//  МОБИЛЬНОСТЬ ВРАГОВ (Фаза 4, Шаг 17-21)
+//  Времена разблокировки и кулдауны приёмов уже заданы в kAbilityRules выше
+//  (ABIL_JUMP_SLAM, ABIL_TELEPORT, ABIL_BLINK, ABIL_DASH, ABIL_FLANK).
+//  Здесь — геометрия и тайминги самих перемещений. Каждый параметр — с комментарием.
+// ---------------------------------------------------------------------------
+
+// Доля обычных врагов (не боссов), получающих приём мобильности при спавне (0..99).
+// Конкретный приём выбирается среди РАЗБЛОКИРОВАННЫХ по весам из kAbilityRules.
+inline constexpr int kMobilityChance = 30;
+
+// -- Прыжок-наскок (Шаг 17): враг прыгает к игроку, приземление = slam-зона --
+inline constexpr float kJumpTriggerRange = 360.0f; // с какой дистанции враг решается прыгнуть
+inline constexpr float kJumpMinRange     = 120.0f; // ближе этого прыгать незачем
+inline constexpr float kJumpDuration     = 0.55f;  // длительность полёта, сек
+inline constexpr float kJumpMaxDist      = 340.0f; // максимальная дальность прыжка, пикс
+inline constexpr float kJumpArcHeight    = 90.0f;  // высота визуальной дуги прыжка, пикс
+inline constexpr float kSlamRadius       = 95.0f;  // радиус зоны удара при приземлении
+inline constexpr int   kSlamDamage       = 16;     // урон slam-зоны
+inline constexpr float kSlamFill         = 0.45f;  // время заполнения slam-зоны (короткое), сек
+
+// -- Телепорт (Шаг 18): враг исчезает и появляется рядом с игроком --
+inline constexpr float kTeleportTriggerRange = 520.0f; // дальше этого враг телепортируется ближе
+inline constexpr float kTeleportRange        = 150.0f; // на каком расстоянии от игрока появляется
+
+// -- Блинк-преследователь (Шаг 19): короткие телепорты-рывки серией --
+inline constexpr float kBlinkDistance = 110.0f; // длина одного блинка, пикс
+inline constexpr int   kBlinkBurst    = 3;      // сколько блинков в серии
+inline constexpr float kBlinkStep     = 0.18f;  // пауза между блинками внутри серии, сек
+inline constexpr float kBlinkMinRange = 90.0f;  // ближе этого блинкать не нужно
+
+// -- Улучшённый рывок (Шаг 20): сначала линия-предупреждение пути, потом разгон --
+inline constexpr float kDashTriggerRange    = 420.0f; // с какой дистанции обычный враг готовит рывок
+inline constexpr float kDashTelegraphTime   = 0.5f;   // сколько показывается линия-предупреждение, сек
+inline constexpr float kDashSpeed           = 780.0f; // скорость во время рывка, пикс/сек
+inline constexpr float kDashDuration        = 0.35f;  // длительность рывка, сек
+inline constexpr float kDashLength          = 360.0f; // длина телеграф-линии пути, пикс
+inline constexpr float kDashWidth           = 46.0f;  // ширина линии-предупреждения, пикс
+inline constexpr int   kDashTelegraphDamage = 0;      // урон линии (0 = только предупреждение; контакт бьёт сам)
+inline constexpr float kBossDashCooldown    = 3.0f;   // кулдаун рывка у боссов (Чёрный рыцарь), сек
+
+// -- Окружение/фланг (Шаг 21): держать дистанцию и заходить сбоку --
+inline constexpr float kFlankRadius = 160.0f; // дистанция, которую держит фланговый враг, пикс
+inline constexpr float kFlankAngle  = 1.1f;   // угловое смещение точки захода, рад (~63°)
+inline constexpr float kFlankSwitch = 2.5f;   // как часто фланговый меняет сторону захода, сек
+
+} // namespace Tuning
