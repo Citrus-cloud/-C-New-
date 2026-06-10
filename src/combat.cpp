@@ -1,5 +1,6 @@
 #include "combat.h"
 #include "effects.h"
+#include "tuning.h"   // сила отбрасывания от попаданий (Фаза 6, Шаг 30)
 #include <cmath>
 
 // Общая функция урона по врагу: эффекты + награда при смерти.
@@ -134,6 +135,8 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
             if (CheckCollisionRecs(p.GetRect(), e.GetRect()))
             {
                 DamageEnemy(e, p.damage, orbs, loot, effects);
+                // Отбрасывание от попадания (Шаг 30): толкаем врага прочь от игрока.
+                e.ApplyKnockback({ e.position.x - playerPos.x, e.position.y - playerPos.y }, Tuning::kKnockbackForce);
                 if (p.pierce > 0) p.pierce--;
                 else p.active = false;
                 if (!p.active) break;
