@@ -4,6 +4,8 @@
 #include "tuning.h"      // все числовые параметры спавна берём отсюда (Фаза 1)
 #include "telegraph.h"  // система телеграфов (Фаза 2)
 #include "ranged.h"     // система снарядов (Фаза 3)
+#include "effects.h"    // визуальные эффекты (Фаза 4-5: магический круг призыва/лечения)
+#include "hazards.h"    // система опасных зон (Фаза 5, ядовитый след)
 #include <cmath>
 
 Spawner::Spawner(int poolSize)
@@ -11,7 +13,7 @@ Spawner::Spawner(int poolSize)
       bossTimer(0.0f), bossInterval(Tuning::kBossInterval), elapsed(0.0f),
       bossEventLine(-1), bossSpawnCount(0), telegraphTimer(0.0f),
       shooterTimer(0.0f), bossRangedTimer(0.0f), bossRangedPattern(0),
-      telegraphs(nullptr), ranged(nullptr), effects(nullptr)
+      telegraphs(nullptr), ranged(nullptr), effects(nullptr), hazards(nullptr)
 {
     enemies.resize(poolSize);
 }
@@ -29,6 +31,11 @@ void Spawner::SetRanged(RangedSystem* r)
 void Spawner::SetEffects(Effects* e)
 {
     effects = e;
+}
+
+void Spawner::SetHazards(HazardSystem* h)
+{
+    hazards = h;
 }
 
 void Spawner::LoadArt(TextureManager& tex)
@@ -100,6 +107,35 @@ void Spawner::MaybeAssignMobility(Enemy* e)
     }
 }
 
+// Назначает обычному врагу ОСОБУЮ способность (Фаза 5, Шаг 23-28). С вероятностью
+// kSpecialChance выбирает одну из РАЗБЛОКИРОВАННЫХ по весам из kAbilityRules. Не зависит
+// от приёма мобильности: враг может иметь и перемещение, и особую способность.
+void Spawner::MaybeAssignSpecial(Enemy* e)
+{
+    if (!e || e->type == ENEMY_BOSS) return;
+    if (GetRandomValue(0, 99) >= Tuning::kSpecialChance) return;
+
+    const Tuning::AbilityId ids[5]  = { Tuning::ABIL_SHIELD, Tuning::ABIL_SPLIT,
+                                        Tuning::ABIL_SLOW_AURA, Tuning::ABIL_POISON_TRAIL,
+                                        Tuning::ABIL_HEALER };
+    const int               kinds[5] = { SPEC_SHIELD, SPEC_SPLIT, SPEC_SLOW_AURA,
+                                         SPEC_POISON_TRAIL, SPEC_HEALER };
+
+    // Суммарный вес разблокированных способностей.
+    float total = 0.0f;
+    for (int i = 0; i < 5; i++)
+        if (Tuning::IsUnlockedAt(ids[i], elapsed)) total += Tuning::GetRule(ids[i]).weight;
+    if (total <= 0.0f) return;
+
+    float r = (float)GetRandomValue(0, 10000) / 10000.0f * total;
+    for (int i = 0; i < 5; i++)
+    {
+        if (!Tuning::IsUnlockedAt(ids[i], elapsed)) continue;
+        r -= Tuning::GetRule(ids[i]).weight;
+        if (r <= 0.0f) { e->ApplySpecial(kinds[i]); break; }
+    }
+}
+
 Enemy* Spawner::GetInactive()
 {
     for (auto& e : enemies)
@@ -129,6 +165,7 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
         e->Spawn(pos, t);
         AssignArt(e, t);
         MaybeAssignMobility(e);   // Фаза 4: возможный приём перемещения
+        MaybeAssignSpecial(e);    // Фаза 5: возможная особая способность
     }
 }
 
@@ -175,6 +212,25 @@ void Spawner::SpawnMobilityTest(Vector2 center, const TileMap& map)
     }
 }
 
+// Отладка (F7, Шаг 28): спавним по одному врагу с каждой особой способностью
+// вокруг точки center, игнорируя время разблокировки — для быстрой проверки.
+void Spawner::SpawnSpecialTest(Vector2 center, const TileMap& map)
+{
+    const int kinds[5] = { SPEC_SHIELD, SPEC_SPLIT, SPEC_SLOW_AURA, SPEC_POISON_TRAIL, SPEC_HEALER };
+    for (int i = 0; i < 5; i++)
+    {
+        Enemy* e = GetInactive();
+        if (!e) break;
+        float ang = (float)i / 5.0f * 2.0f * PI;
+        Vector2 pos = { center.x + cosf(ang) * 260.0f, center.y + sinf(ang) * 260.0f };
+        pos = map.FindFreeSpot(pos, 16.0f);
+        // Танк лучше виден для теста щита/деления.
+        e->Spawn(pos, ENEMY_TANK);
+        AssignArt(e, ENEMY_TANK);
+        e->ApplySpecial(kinds[i]);
+    }
+}
+
 void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
 {
     elapsed += deltaTime;
@@ -209,23 +265,101 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
             bossColor = e.color;
         }
 
-        // Призыв миньонов (Королева пауков). Интервал — из BossDef, кол-во — из Tuning.
+        // --- Разделение при смерти (Шаг 24): флаг выставлен в DamageEnemy ---
+        if (e.wantSplit)
+        {
+            e.wantSplit = false;
+            for (int s = 0; s < Tuning::kSplitCount; s++)
+            {
+                Enemy* shard = GetInactive();
+                if (!shard) break;
+                float ang = (float)s / Tuning::kSplitCount * 2.0f * PI;
+                Vector2 sp = { e.position.x + cosf(ang) * Tuning::kSplitSpread,
+                               e.position.y + sinf(ang) * Tuning::kSplitSpread };
+                sp = map.FindFreeSpot(sp, 12.0f);
+                shard->Spawn(sp, ENEMY_FAST);
+                AssignArt(shard, ENEMY_FAST);
+                // Осколки слабее и мельче родителя; повторно НЕ делятся (splitsOnDeath=false из Spawn).
+                int hp = (int)(e.maxHealth * Tuning::kSplitHealthFrac);
+                if (hp < 1) hp = 1;
+                shard->maxHealth = hp;
+                shard->health = hp;
+                shard->size = e.size * Tuning::kSplitSizeFrac;
+            }
+        }
+
+        // --- Аура замедления (Шаг 26): если игрок в радиусе — замедляем ---
+        if (e.active && !e.dying && e.special == SPEC_SLOW_AURA)
+        {
+            float dx = player.position.x - e.position.x;
+            float dy = player.position.y - e.position.y;
+            if (dx * dx + dy * dy <= Tuning::kSlowAuraRadius * Tuning::kSlowAuraRadius)
+                player.ApplySlow(Tuning::kSlowAuraFactor);
+        }
+
+        // --- Ядовитый след (Шаг 27): периодически роняем лужу в систему хазардов ---
+        if (e.active && !e.dying && e.special == SPEC_POISON_TRAIL && hazards)
+        {
+            e.poisonDropTimer -= deltaTime;
+            if (e.poisonDropTimer <= 0.0f)
+            {
+                e.poisonDropTimer = Tuning::kPoisonDropInterval;
+                hazards->Spawn(e.position, Tuning::kPoisonRadius, Tuning::kPoisonDamage,
+                               Tuning::kPoisonTick, Tuning::kPoisonLifetime,
+                               Color{ 80, 220, 60, 255 });
+            }
+        }
+
+        // --- Лекарь (Шаг 28): периодически лечим союзников в радиусе ---
+        if (e.active && !e.dying && e.special == SPEC_HEALER)
+        {
+            e.healTimer -= deltaTime;
+            if (e.healTimer <= 0.0f)
+            {
+                e.healTimer = Tuning::kHealInterval;
+                for (auto& ally : enemies)
+                {
+                    if (&ally == &e) continue;            // себя не лечим
+                    if (!ally.active || ally.dying) continue;
+                    float dx = ally.position.x - e.position.x;
+                    float dy = ally.position.y - e.position.y;
+                    if (dx * dx + dy * dy <= Tuning::kHealerRadius * Tuning::kHealerRadius)
+                    {
+                        ally.health += Tuning::kHealAmount;
+                        if (ally.health > ally.maxHealth) ally.health = ally.maxHealth;
+                    }
+                }
+                if (effects) effects->SpawnMagicCircle(e.position, 2.0f);   // зелёный импульс лечения
+            }
+        }
+
+        // Призыв миньонов (Шаг 25): типы миньонов + лимит активных. Интервал — из BossDef.
         if (e.active && !e.dying && e.canSummon)
         {
             e.summonTimer -= deltaTime;
             if (e.summonTimer <= 0.0f)
             {
                 e.summonTimer = GetBossDef(e.bossId).summonInterval;
-                for (int s = 0; s < Tuning::kSummonMinionCount; s++)
+                // Не заспавниваем карту: призыв работает только пока активных меньше лимита.
+                if (ActiveCount() < Tuning::kSummonMaxActive)
                 {
-                    Enemy* m = GetInactive();
-                    if (!m) break;
-                    float ang = (float)s / Tuning::kSummonMinionCount * 2.0f * PI;
-                    Vector2 mp = { e.position.x + cosf(ang) * 60.0f, e.position.y + sinf(ang) * 60.0f };
-                    mp = map.FindFreeSpot(mp, 12.0f);
-                    m->Spawn(mp, ENEMY_FAST);
-                    AssignArt(m, ENEMY_FAST);
-                    MaybeAssignMobility(m);   // призванные миньоны тоже могут быть мобильными
+                    for (int s = 0; s < Tuning::kSummonMinionCount; s++)
+                    {
+                        Enemy* m = GetInactive();
+                        if (!m) break;
+                        float ang = (float)s / Tuning::kSummonMinionCount * 2.0f * PI;
+                        Vector2 mp = { e.position.x + cosf(ang) * 60.0f, e.position.y + sinf(ang) * 60.0f };
+                        mp = map.FindFreeSpot(mp, 12.0f);
+                        // Тип миньона: танк (после kSummonTankTime), иначе быстрый, иначе обычный.
+                        EnemyType mt = ENEMY_GRUNT;
+                        int roll = GetRandomValue(0, 99);
+                        if (elapsed > Tuning::kSummonTankTime && roll < Tuning::kSummonTankChance) mt = ENEMY_TANK;
+                        else if (roll < Tuning::kSummonFastChance) mt = ENEMY_FAST;
+                        m->Spawn(mp, mt);
+                        AssignArt(m, mt);
+                        MaybeAssignMobility(m);   // призванные миньоны тоже могут быть мобильными
+                    }
+                    if (effects) effects->SpawnMagicCircle(e.position, 1.4f);   // fx призыва
                 }
             }
         }

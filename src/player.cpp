@@ -5,7 +5,8 @@
 Player::Player(Vector2 startPos)
     : position(startPos), speed(250.0f), health(100), maxHealth(100),
       hitCooldown(0.0f), gotHit(false), xp(0), level(1), xpToNext(5),
-      facingLeft(false), animState(PLAYER_IDLE), spritesLoaded(false)
+      facingLeft(false), animState(PLAYER_IDLE),
+      slowFactor(1.0f), slowTimer(0.0f), spritesLoaded(false)
 {
 }
 
@@ -60,6 +61,14 @@ void Player::Heal(int amount)
     if (health > maxHealth) health = maxHealth;
 }
 
+// Замедляет игрока аурой врага (Шаг 26). Вызывается каждый кадр, пока игрок
+// в ауре: таймер обновляется, и замедление снимается лишь после выхода.
+void Player::ApplySlow(float factor)
+{
+    slowFactor = factor;
+    slowTimer = 0.2f;   // переживёт несколько кадров после выхода из ауры
+}
+
 void Player::ResolveStuck(const TileMap& map)
 {
     if (!map.CheckCollision(GetRect())) return;
@@ -70,6 +79,14 @@ void Player::Update(float deltaTime, const TileMap& map)
 {
     gotHit = false;
     if (hitCooldown > 0.0f) hitCooldown -= deltaTime;
+
+    // Замедление от ауры (Шаг 26): по истечении таймера скорость восстанавливается.
+    if (slowTimer > 0.0f)
+    {
+        slowTimer -= deltaTime;
+        if (slowTimer <= 0.0f) slowFactor = 1.0f;
+    }
+
     ResolveStuck(map);
 
     Vector2 dir = { 0.0f, 0.0f };
@@ -92,8 +109,10 @@ void Player::Update(float deltaTime, const TileMap& map)
     {
         dir.x /= len;
         dir.y /= len;
-        float dx = dir.x * speed * deltaTime;
-        float dy = dir.y * speed * deltaTime;
+        // Скорость умножаем на slowFactor (Шаг 26: аура замедления).
+        float curSpeed = speed * slowFactor;
+        float dx = dir.x * curSpeed * deltaTime;
+        float dy = dir.y * curSpeed * deltaTime;
 
         position.x += dx;
         if (map.CheckCollision(GetRect())) position.x -= dx;
