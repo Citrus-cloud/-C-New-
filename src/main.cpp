@@ -63,6 +63,7 @@ int main()
 
     Effects effects;
     effects.LoadArt(textures);
+    spawner.SetEffects(&effects);   // эффекты для приёмов мобильности (Фаза 4)
 
     // Способности игрока (Шаг 23), выбранный класс и карта (Шаг 24-25).
     Abilities abilities;
@@ -99,6 +100,7 @@ int main()
         ranged.Clear();                     // очистка снарядов врагов (Фаза 3)
         spawner.SetTelegraphs(&telegraphs); // спавнер пересоздан — заново привязываем телеграфы
         spawner.SetRanged(&ranged);         // и систему снарядов (Фаза 3)
+        spawner.SetEffects(&effects);       // и систему эффектов (Фаза 4)
         weapon = Weapon(300);
         orbs = ExpOrbs(500);
         traps = Traps();
@@ -207,6 +209,8 @@ int main()
                 ranged.FireVolley(Vector2{ player.position.x, player.position.y - 300.0f },
                                   player.position, Tuning::kVolleyCount,
                                   Tuning::kVolleySpread, Tuning::kVolleyDamage, PURPLE);
+            if (IsKeyPressed(KEY_F6))   // тест: спавн врагов со всеми приёмами мобильности (Фаза 4)
+                spawner.SpawnMobilityTest(player.position, map);
             survivalTime += dt;
             director.Update(dt);   // продвигаем время забега (Фаза 1)
             player.Update(dt, map);
