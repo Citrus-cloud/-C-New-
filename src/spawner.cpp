@@ -287,10 +287,10 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
 
     // ---- Враг-стрелок (Фаза 3, Шаг 14): обычный враг издали бьёт с упреждением ----
     // Разблокируется по времени (Tuning::IsUnlockedAt), интервал — из правила способности.
-    if (ranged && Tuning::IsUnlockedAt(ABIL_RANGED_SHOOTER, elapsed))
+    if (ranged && Tuning::IsUnlockedAt(Tuning::ABIL_RANGED_SHOOTER, elapsed))
     {
         shooterTimer += deltaTime;
-        float interval = Tuning::GetRule(ABIL_RANGED_SHOOTER).minInterval;
+        float interval = Tuning::GetRule(Tuning::ABIL_RANGED_SHOOTER).minInterval;
         if (interval < 0.05f) interval = 0.05f;
         if (shooterTimer >= interval)
         {
