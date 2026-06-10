@@ -212,6 +212,26 @@ Telegraph* TelegraphSystem::SpawnCone(Vector2 origin, float angle, float length,
     return t;
 }
 
+// Лазер: линия, которая следит за target до timer == lockTime, затем фиксируется.
+Telegraph* TelegraphSystem::SpawnLaser(Vector2 origin, Vector2 target, float length, float width, int damage, float fillTime, float lockTime, Color c)
+{
+    Telegraph* t = GetInactive();
+    if (!t) return nullptr;
+    *t = Telegraph();
+    t->active = true;
+    t->shape = TELEGRAPH_LINE;
+    t->origin = origin;
+    t->angle = atan2f(target.y - origin.y, target.x - origin.x);   // начальное направление на игрока
+    t->length = length;
+    t->width = width;
+    t->damage = damage;
+    t->fillTime = fillTime;
+    t->color = c;
+    t->track = true;          // следить за игроком...
+    t->lockAt = lockTime;     // ...до этого момента, потом фиксация
+    return t;
+}
+
 void TelegraphSystem::Update(float dt, Player& player, Effects& effects)
 {
     for (auto& t : pool)
@@ -220,6 +240,14 @@ void TelegraphSystem::Update(float dt, Player& player, Effects& effects)
 
         if (!t.triggered)
         {
+            // Лазер: пока не наступила фиксация — перенацеливаемся на игрока (Шаг 11-12).
+            if (t.track && t.timer < t.lockAt)
+            {
+                float dx = player.position.x - t.origin.x;
+                float dy = player.position.y - t.origin.y;
+                t.angle = atan2f(dy, dx);
+            }
+
             t.timer += dt;
             if (t.timer >= t.fillTime)
             {
