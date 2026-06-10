@@ -3,13 +3,15 @@
 #include "bosses.h"
 #include "tuning.h"      // все числовые параметры спавна берём отсюда (Фаза 1)
 #include "telegraph.h"  // система телеграфов (Фаза 2)
+#include "ranged.h"     // система снарядов (Фаза 3)
 #include <cmath>
 
 Spawner::Spawner(int poolSize)
     : spawnTimer(0.0f), spawnInterval(Tuning::kSpawnBaseInterval),
       bossTimer(0.0f), bossInterval(Tuning::kBossInterval), elapsed(0.0f),
       bossEventLine(-1), bossSpawnCount(0), telegraphTimer(0.0f),
-      telegraphs(nullptr)
+      shooterTimer(0.0f), bossRangedTimer(0.0f), bossRangedPattern(0),
+      telegraphs(nullptr), ranged(nullptr)
 {
     enemies.resize(poolSize);
 }
@@ -17,6 +19,11 @@ Spawner::Spawner(int poolSize)
 void Spawner::SetTelegraphs(TelegraphSystem* t)
 {
     telegraphs = t;
+}
+
+void Spawner::SetRanged(RangedSystem* r)
+{
+    ranged = r;
 }
 
 void Spawner::LoadArt(TextureManager& tex)
@@ -126,11 +133,18 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
         SpawnBoss(player.position, map);
     }
 
-    bool bossActive = false;   // есть ли сейчас живой босс (для демо-телеграфа)
+    bool bossActive = false;   // есть ли сейчас живой босс
+    Vector2 bossPos = { 0.0f, 0.0f };
+    Color bossColor = Color{ 230, 60, 60, 255 };
     for (auto& e : enemies)
     {
         e.Update(deltaTime, player.position, map);
-        if (e.active && !e.dying && e.type == ENEMY_BOSS) bossActive = true;
+        if (e.active && !e.dying && e.type == ENEMY_BOSS)
+        {
+            bossActive = true;
+            bossPos = e.position;
+            bossColor = e.color;
+        }
 
         // Призыв миньонов (Королева пауков). Интервал — из BossDef, кол-во — из Tuning.
         if (e.active && !e.dying && e.canSummon)
@@ -174,6 +188,69 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
     else
     {
         telegraphTimer = 0.0f;   // нет босса — сбрасываем накопление
+    }
+
+    // ---- Дальние атаки босса (Фаза 3, Шаг 15): чередуем лазер и залп ----
+    // Лазер идёт через систему телеграфов (слежение + фиксация), залп — через снаряды.
+    if (bossActive && ranged && telegraphs)
+    {
+        bossRangedTimer += deltaTime;
+        if (bossRangedTimer >= Tuning::kBossRangedInterval)
+        {
+            bossRangedTimer = 0.0f;
+            if (bossRangedPattern == 0)
+            {
+                // Паттерн 0: следящий лазер из босса.
+                telegraphs->SpawnLaser(bossPos, player.position,
+                                       Tuning::kLaserLength, Tuning::kLaserWidth,
+                                       Tuning::kLaserDamage, Tuning::kLaserFillTime,
+                                       Tuning::kLaserTrackTime, bossColor);
+            }
+            else
+            {
+                // Паттерн 1: веер/залп снарядов в сторону игрока.
+                ranged->FireVolley(bossPos, player.position,
+                                   Tuning::kVolleyCount, Tuning::kVolleySpread,
+                                   Tuning::kVolleyDamage, bossColor);
+            }
+            bossRangedPattern ^= 1;   // чередуем паттерны
+        }
+    }
+    else
+    {
+        bossRangedTimer = 0.0f;
+    }
+
+    // ---- Враг-стрелок (Фаза 3, Шаг 14): обычный враг издали бьёт с упреждением ----
+    // Разблокируется по времени (Tuning::IsUnlockedAt), интервал — из правила способности.
+    if (ranged && Tuning::IsUnlockedAt(ABIL_RANGED_SHOOTER, elapsed))
+    {
+        shooterTimer += deltaTime;
+        float interval = Tuning::GetRule(ABIL_RANGED_SHOOTER).minInterval;
+        if (interval < 0.05f) interval = 0.05f;
+        if (shooterTimer >= interval)
+        {
+            shooterTimer = 0.0f;
+            // Ищем подходящего стрелка: активный не-босс, не умирающий, дальше kShooterMinRange.
+            Enemy* shooter = nullptr;
+            int candidates = 0;
+            for (auto& e : enemies)
+            {
+                if (!e.active || e.dying || e.type == ENEMY_BOSS) continue;
+                float dx = player.position.x - e.position.x;
+                float dy = player.position.y - e.position.y;
+                if (dx * dx + dy * dy < Tuning::kShooterMinRange * Tuning::kShooterMinRange) continue;
+                // Резервуарный выбор (reservoir sampling) — равномерно случайный из подходящих.
+                candidates++;
+                if (GetRandomValue(1, candidates) == 1) shooter = &e;
+            }
+            if (shooter)
+                ranged->FireAimed(shooter->position, player.position, Color{ 255, 170, 60, 255 });
+        }
+    }
+    else
+    {
+        shooterTimer = 0.0f;
     }
 }
 
