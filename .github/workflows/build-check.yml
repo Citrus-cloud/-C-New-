@@ -1,6 +1,7 @@
+
 name: Build Check
 
-# Запускается при открытии/обновлении PR в main, а также вручную.
+# Runs on PR open/update to main, and manual dispatch.
 on:
   pull_request:
     branches: [ "main" ]
@@ -18,7 +19,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Системные зависимости, нужные raylib для десктоп-сборки (OpenGL/X11/Wayland).
+      # System deps required by raylib for desktop build (OpenGL/X11/Wayland).
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -26,7 +27,7 @@ jobs:
             libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
             libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev wayland-protocols
 
-      # POST_BUILD в CMakeLists копирует assets/ — создаём пустую папку, чтобы шаг не падал.
+      # CMakeLists POST_BUILD copies assets/ - create empty dir so it doesn't fail.
       - name: Prepare assets dir
         run: mkdir -p assets
 
@@ -36,20 +37,21 @@ jobs:
       - name: Build
         run: cmake --build build --config Release 2>&1 | tee -a build.log
 
-      # Публикуем статус и хвост лога компиляции прямо в комментарий PR.
+      # Publish status + tail of compile log into a PR comment.
       - name: Post result as PR comment
         if: always() && github.event_name == 'pull_request'
         env:
-          GH_TOKEN: $ secrets.GITHUB_TOKEN 
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           {
-            echo "## Результат сборки CI: $ job.status "
+            echo "## CI build result: ${{ job.status }}"
             echo ""
-            echo "Коммит: \`$ github.sha \`"
+            echo "Commit: \`${{ github.sha }}\`"
             echo ""
-            echo "### Хвост лога компиляции (последние ~60000 символов)"
+            echo "### Tail of compile log (last ~60000 chars)"
             echo '```'
-            tail -c 60000 build.log 2>/dev/null || echo "(лог пуст)"
+            tail -c 60000 build.log 2>/dev/null || echo "(empty log)"
             echo '```'
           } > comment.md
-          gh pr comment "$ github.event.pull_request.number " --body-file comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file comment.md
+          
