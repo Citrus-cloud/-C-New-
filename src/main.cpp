@@ -19,6 +19,7 @@
 #include "tuning.h"     // единый конфиг боя (Фаза 1)
 #include "director.h"   // менеджер волн и доступности приёмов (Фаза 1)
 #include "telegraph.h"  // система телеграфов-предупреждений (Фаза 2)
+#include "ranged.h"     // система дальних атак / снарядов врагов (Фаза 3)
 
 // Состояния игры. MENU/SELECT/META/SETTINGS — экраны лагеря (Фаза 6).
 enum GameState { MENU, SELECT, META, SETTINGS, PLAYING, LEVEL_UP, PAUSED, GAME_OVER };
@@ -51,7 +52,9 @@ int main()
     spawner.LoadArt(textures);
     WaveDirector director;   // менеджер волн и доступности приёмов (Фаза 1)
     TelegraphSystem telegraphs(64);   // система предупреждающих зон (Фаза 2)
+    RangedSystem ranged(256);         // пул снарядов врагов (Фаза 3)
     spawner.SetTelegraphs(&telegraphs);   // враги «заказывают» зоны через спавнер
+    spawner.SetRanged(&ranged);           // и выпускают снаряды через него (Фаза 3)
     Weapon weapon(300);
     ExpOrbs orbs(500);
     Traps traps;
@@ -93,7 +96,9 @@ int main()
         spawner.LoadArt(textures);
         director.Reset();   // сброс времени забега и кулдаунов (Фаза 1)
         telegraphs.Clear();                 // очистка предупреждающих зон (Фаза 2)
+        ranged.Clear();                     // очистка снарядов врагов (Фаза 3)
         spawner.SetTelegraphs(&telegraphs); // спавнер пересоздан — заново привязываем телеграфы
+        spawner.SetRanged(&ranged);         // и систему снарядов (Фаза 3)
         weapon = Weapon(300);
         orbs = ExpOrbs(500);
         traps = Traps();
@@ -198,11 +203,16 @@ int main()
             if (IsKeyPressed(KEY_F3)) showDebug = !showDebug;   // отладка: показать правила конфига
             if (IsKeyPressed(KEY_F4))   // тест: вручную заказать круговую зону под игроком (Фаза 2)
                 telegraphs.SpawnCircle(player.position, 120.0f, 15, Tuning::kTelegraphDefaultFill, ORANGE);
+            if (IsKeyPressed(KEY_F5))   // тест: залп снарядов по игроку из точки выше (Фаза 3)
+                ranged.FireVolley(Vector2{ player.position.x, player.position.y - 300.0f },
+                                  player.position, Tuning::kVolleyCount,
+                                  Tuning::kVolleySpread, Tuning::kVolleyDamage, PURPLE);
             survivalTime += dt;
             director.Update(dt);   // продвигаем время забега (Фаза 1)
             player.Update(dt, map);
             spawner.Update(dt, player, map);
             telegraphs.Update(dt, player, effects);   // продвигаем зоны и наносим урон (Фаза 2)
+            ranged.Update(dt, player, effects);       // движение снарядов и урон (Фаза 3)
             if (player.gotHit)
             {
                 audio.Hit();
@@ -353,11 +363,13 @@ int main()
                     loot.Draw();
                     orbs.Draw();
                     spawner.Draw(camera, screenWidth, screenHeight);
+                    ranged.Draw();       // снаряды врагов поверх врагов (Фаза 3)
                     weapon.Draw();
                     player.Draw();
                     abilities.Draw(player.position);
                     effects.DrawWorld();
                     if (showDebug) telegraphs.DrawDebug();   // отладка: контуры зон (Фаза 2)
+                    if (showDebug) ranged.DrawDebug();       // отладка: радиусы снарядов (Фаза 3)
                 EndMode2D();
 
                 effects.DrawScreen(screenWidth, screenHeight);
@@ -369,9 +381,9 @@ int main()
                 if (showDebug)
                 {
                     float dx = 16.0f, dy = 90.0f;
-                    hud.Text(TextFormat("DEBUG F3  t=%.1f  wave=%d  spawn=%.2f  TG=%d",
+                    hud.Text(TextFormat("DEBUG F3  t=%.1f  wave=%d  spawn=%.2f  TG=%d  PROJ=%d",
                         director.elapsed, director.WaveCount(), director.SpawnInterval(),
-                        telegraphs.ActiveCount()), dx, dy, 18, LIME);
+                        telegraphs.ActiveCount(), ranged.ActiveCount()), dx, dy, 18, LIME);
                     dy += 26.0f;
                     for (int i = 0; i < Tuning::ABILITY_COUNT; i++)
                     {
