@@ -9,7 +9,7 @@ class TextureManager;
 // Какое действие сейчас проигрывается у игрока — определяет анимацию.
 enum PlayerAnimState { PLAYER_IDLE, PLAYER_WALK, PLAYER_HURT };
 
-// Класс игрока (без рывка — простое движение)
+// Класс игрока (движение + рывок-уворот с неуязвимостью, Шаг 29)
 class Player
 {
 public:
@@ -30,6 +30,12 @@ public:
     float slowFactor;   // множитель скорости (0..1)
     float slowTimer;    // сколько ещё действует замедление; обновляется, пока игрок в ауре
 
+    // Уворот/рывок (Фаза 6, Шаг 29): быстрый рывок с неуязвимостью и кулдауном.
+    float dodgeTimer;        // >0 — идёт рывок (движемся по dodgeDir)
+    float dodgeIFrameTimer;  // >0 — активна неуязвимость рывка (урон не проходит)
+    float dodgeCdTimer;      // >0 — рывок ещё перезаряжается
+    Vector2 dodgeDir;        // направление текущего рывка (единичный вектор)
+
     Player(Vector2 startPos);
 
     // Загружает спрайты игрока через менеджер текстур. Вызывать после создания игрока.
@@ -43,6 +49,7 @@ public:
     void TakeDamage(int dmg);
     void Heal(int amount);
     void ApplySlow(float factor);   // замедлить игрока аурой (Шаг 26)
+    bool IsDodging() const { return dodgeTimer > 0.0f; }  // идёт ли рывок (Шаг 29)
 
 private:
     Animation animIdle;   // стойка
