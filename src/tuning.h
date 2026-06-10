@@ -52,6 +52,39 @@ inline constexpr float kBossTelegraphRadius   = 140.0f; // радиус пред
 inline constexpr int   kBossTelegraphDamage   = 18;     // урон при срабатывании
 
 // ---------------------------------------------------------------------------
+//  ДАЛЬНИЕ АТАКИ И ЛАЗЕРЫ (Фаза 3, Шаг 11-16)
+//  Лазер строится на телеграфе-линии: прицел следит за игроком
+//  kLaserTrackTime секунд, затем фиксируется (окно на уход) и бьёт.
+//  Снаряды врагов летят по прямой, стрелок берёт упреждение.
+// ---------------------------------------------------------------------------
+
+// -- Снаряды врагов (общие) --
+inline constexpr float kEnemyProjSpeed    = 260.0f; // скорость снаряда врага, пикс/сек
+inline constexpr float kEnemyProjRadius   = 7.0f;   // радиус снаряда (визуал и попадание)
+inline constexpr int   kEnemyProjDamage   = 8;      // урон обычного снаряда
+inline constexpr float kEnemyProjLifetime = 4.0f;   // время жизни снаряда, сек
+inline constexpr float kPlayerHitRadius   = 18.0f;  // радиус попадания по игроку для снарядов
+
+// -- Враг-стрелок (Шаг 14) --
+inline constexpr float kShooterMinRange   = 180.0f; // ближе этого стрелок не стреляет (даёт уйти в ближний бой)
+inline constexpr float kShooterLead       = 0.35f;  // доля упреждения по скорости игрока (0 = без упреждения)
+
+// -- Лазер босса (Шаг 11-13) --
+inline constexpr float kLaserFillTime     = 1.6f;    // полное время «зарядки» лазера, сек
+inline constexpr float kLaserTrackTime    = 1.0f;    // сколько прицел СЛЕДИТ за игроком до фиксации, сек
+inline constexpr float kLaserLength       = 1400.0f; // длина луча (через весь экран), пикс
+inline constexpr float kLaserWidth        = 46.0f;   // ширина луча, пикс
+inline constexpr int   kLaserDamage       = 26;      // урон лазера при срабатывании
+
+// -- Залп/веер босса (Шаг 15) --
+inline constexpr int   kVolleyCount       = 9;       // число снарядов в веере
+inline constexpr float kVolleySpread      = 1.4f;    // полный угол веера, рад (~80°)
+inline constexpr int   kVolleyDamage      = 10;      // урон снаряда залпа
+
+// -- Темп дальних атак босса --
+inline constexpr float kBossRangedInterval = 4.5f;   // пауза между дальними приёмами босса, сек
+
+// ---------------------------------------------------------------------------
 //  СПОСОБНОСТИ И ПОВЕДЕНИЕ ВРАГОВ
 //  Перечень всех приёмов, которые будут добавляться в следующих фазах.
 //  Они объявлены заранее, чтобы менеджер волн (director) и враги
