@@ -8,6 +8,7 @@
 
 class TextureManager;
 class TelegraphSystem;   // система телеграфов (Фаза 2)
+class RangedSystem;      // система дальних атак / снарядов (Фаза 3)
 
 class Spawner
 {
@@ -22,9 +23,15 @@ public:
     int bossSpawnCount;   // сколько боссов уже вызвано (для чередования)
     float telegraphTimer; // таймер демо-телеграфа босса (Фаза 2)
 
+    // --- Дальние атаки (Фаза 3) ---
+    float shooterTimer;     // общий таймер выстрелов врагов-стрелков
+    float bossRangedTimer;  // таймер дальних атак босса (лазер/залп)
+    int   bossRangedPattern; // чередование паттернов босса (0=лазер, 1=залп)
+
     Spawner(int poolSize);
     void LoadArt(TextureManager& textures);
     void SetTelegraphs(TelegraphSystem* t);   // привязка системы телеграфов (Фаза 2)
+    void SetRanged(RangedSystem* r);           // привязка системы снарядов (Фаза 3)
     Enemy* GetInactive();
     void SpawnWave(Vector2 center, const TileMap& map);
     void SpawnBoss(Vector2 center, const TileMap& map);
@@ -37,5 +44,6 @@ private:
     Animation artSpiderWalk, artKnightWalk;   // спрайты конкретных боссов
     Animation artEnemyDeath, artBossDeath;
     TelegraphSystem* telegraphs;   // куда враги «заказывают» зоны (может быть nullptr)
+    RangedSystem* ranged;          // куда враги выпускают снаряды (может быть nullptr)
     void AssignArt(Enemy* e, EnemyType t);
 };
