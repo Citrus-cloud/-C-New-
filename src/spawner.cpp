@@ -6,6 +6,7 @@
 #include "ranged.h"     // система снарядов (Фаза 3)
 #include "effects.h"    // визуальные эффекты (Фаза 4-5: магический круг призыва/лечения)
 #include "hazards.h"    // система опасных зон (Фаза 5, ядовитый след)
+#include "combat.h"     // полное определение Weapon/Projectile для уклонения (Фаза 6, Шаг 33)
 #include <cmath>
 
 Spawner::Spawner(int poolSize)
@@ -13,7 +14,8 @@ Spawner::Spawner(int poolSize)
       bossTimer(0.0f), bossInterval(Tuning::kBossInterval), elapsed(0.0f),
       bossEventLine(-1), bossSpawnCount(0), telegraphTimer(0.0f),
       shooterTimer(0.0f), bossRangedTimer(0.0f), bossRangedPattern(0),
-      telegraphs(nullptr), ranged(nullptr), effects(nullptr), hazards(nullptr)
+      telegraphs(nullptr), ranged(nullptr), effects(nullptr), hazards(nullptr),
+      weapon(nullptr)
 {
     enemies.resize(poolSize);
 }
@@ -36,6 +38,11 @@ void Spawner::SetEffects(Effects* e)
 void Spawner::SetHazards(HazardSystem* h)
 {
     hazards = h;
+}
+
+void Spawner::SetWeapon(Weapon* w)
+{
+    weapon = w;
 }
 
 void Spawner::LoadArt(TextureManager& tex)
@@ -149,6 +156,118 @@ void Spawner::MaybeAssignElite(Enemy* e)
     e->ApplyElite(kinds[GetRandomValue(0, 3)]);
 }
 
+// Назначает обычному врагу улучшенный ИИ (Фаза 6, Шаг 33): с вероятностью
+// kProjDodgeChance после kProjDodgeUnlockTime враг начинает уклоняться от снарядов игрока.
+// Не зависит от других приёмов — это пассивное улучшение поведения.
+void Spawner::MaybeAssignAI(Enemy* e)
+{
+    if (!e || e->type == ENEMY_BOSS) return;
+    e->projectileDodger = false;
+    if (elapsed < Tuning::kProjDodgeUnlockTime) return;
+    if (GetRandomValue(0, 99) < Tuning::kProjDodgeChance) e->projectileDodger = true;
+}
+
+// Групповое расталкивание (Шаг 33): враги, оказавшиеся ближе kSeparationRadius,
+// мягко толкают друг друга, чтобы не слипаться в одну точку. Сдвиг — с проверкой стен.
+// O(n^2) по пулу, но число соседей ограничено kSeparationMaxNeighbors.
+void Spawner::ApplySeparation(const TileMap& map, float dt)
+{
+    const float r = Tuning::kSeparationRadius;
+    for (auto& e : enemies)
+    {
+        if (!e.active || e.dying) continue;
+        if (e.type == ENEMY_BOSS) continue;          // боссов не расталкиваем
+        if (e.jumping || e.dashing) continue;         // в полёте/рывке не мешаем приёму
+
+        float pushX = 0.0f, pushY = 0.0f;
+        int neighbors = 0;
+        for (auto& o : enemies)
+        {
+            if (&o == &e) continue;
+            if (!o.active || o.dying) continue;
+            float dx = e.position.x - o.position.x;
+            float dy = e.position.y - o.position.y;
+            float d2 = dx * dx + dy * dy;
+            if (d2 >= r * r || d2 <= 0.0001f) continue;
+            float d = sqrtf(d2);
+            float w = (r - d) / r;                    // ближе = сильнее (0..1)
+            pushX += dx / d * w;
+            pushY += dy / d * w;
+            if (++neighbors >= Tuning::kSeparationMaxNeighbors) break;
+        }
+        if (neighbors == 0) continue;
+
+        float step = Tuning::kSeparationForce * dt;
+        float mx = pushX * step;
+        float my = pushY * step;
+        e.position.x += mx;
+        if (map.CheckCollision(e.GetRect())) e.position.x -= mx;
+        e.position.y += my;
+        if (map.CheckCollision(e.GetRect())) e.position.y -= my;
+    }
+}
+
+// Уклонение от снарядов (Шаг 33): враг-«уклонист» ищет ближайший снаряд игрока,
+// летящий примерно в него, и делает короткий шаг перпендикулярно линии полёта.
+// Снаряды живут в weapon->pool; спавнер идёт ДО оружия, поэтому видим снаряды прошлого кадра.
+void Spawner::ApplyProjectileDodge(const TileMap& map, float dt)
+{
+    if (!weapon) return;
+    const float sense = Tuning::kProjDodgeSenseRadius;
+    for (auto& e : enemies)
+    {
+        if (!e.active || e.dying) continue;
+        if (!e.projectileDodger) continue;
+        if (e.type == ENEMY_BOSS) continue;
+        if (e.jumping || e.dashing || e.dashTelegraphing) continue;   // занят приёмом
+        if (e.dodgeReactCd > 0.0f) { e.dodgeReactCd -= dt; continue; }
+
+        // Ищем ближайший угрожающий снаряд, нацеленный на этого врага.
+        float bestD2 = sense * sense;
+        const Projectile* threat = nullptr;
+        for (auto& p : weapon->pool)
+        {
+            if (!p.active) continue;
+            float dx = e.position.x - p.position.x;
+            float dy = e.position.y - p.position.y;
+            float d2 = dx * dx + dy * dy;
+            if (d2 >= bestD2) continue;
+            float vlen = sqrtf(p.velocity.x * p.velocity.x + p.velocity.y * p.velocity.y);
+            if (vlen < 0.0001f) continue;
+            float d = sqrtf(d2);
+            if (d < 0.0001f) continue;
+            // Насколько снаряд нацелен на врага (dot единичных векторов).
+            float dot = (p.velocity.x / vlen) * (dx / d) + (p.velocity.y / vlen) * (dy / d);
+            if (dot < Tuning::kProjDodgeThreatDot) continue;   // летит мимо
+            bestD2 = d2;
+            threat = &p;
+        }
+        if (!threat) continue;
+
+        // Шаг в сторону от линии полёта снаряда (перпендикуляр к скорости).
+        float vlen = sqrtf(threat->velocity.x * threat->velocity.x +
+                           threat->velocity.y * threat->velocity.y);
+        float vx = threat->velocity.x / vlen;
+        float vy = threat->velocity.y / vlen;
+        float tx = e.position.x - threat->position.x;
+        float ty = e.position.y - threat->position.y;
+        float cross = vx * ty - vy * tx;          // с какой стороны линии находится враг
+        float side = (cross >= 0.0f) ? 1.0f : -1.0f;
+        float px = -vy * side;                    // перпендикуляр к направлению снаряда
+        float py =  vx * side;
+
+        float step = Tuning::kProjDodgeSpeed * dt;
+        float mx = px * step;
+        float my = py * step;
+        e.position.x += mx;
+        if (map.CheckCollision(e.GetRect())) e.position.x -= mx;
+        e.position.y += my;
+        if (map.CheckCollision(e.GetRect())) e.position.y -= my;
+
+        e.dodgeReactCd = Tuning::kProjDodgeCooldown;
+    }
+}
+
 Enemy* Spawner::GetInactive()
 {
     for (auto& e : enemies)
@@ -180,6 +299,7 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
         MaybeAssignMobility(e);   // Фаза 4: возможный приём перемещения
         MaybeAssignSpecial(e);    // Фаза 5: возможная особая способность
         MaybeAssignElite(e);      // Фаза 6 (Шаг 32): возможный элитный модификатор
+        MaybeAssignAI(e);         // Фаза 6 (Шаг 33): возможное уклонение от снарядов
     }
 }
 
@@ -398,6 +518,11 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
         if (e.active && !e.dying && CheckCollisionRecs(e.GetRect(), player.GetRect()))
             player.TakeDamage(e.damage);
     }
+
+    // Улучшенный ИИ (Шаг 33): после движения врагов — групповое расталкивание
+    // и уклонение «уклонистов» от летящих снарядов игрока.
+    ApplySeparation(map, deltaTime);
+    ApplyProjectileDodge(map, deltaTime);
 
     // Тест конвейера телеграфов (Шаг 9): активный босс периодически «заказывает»
     // предупреждающую зону под игроком. Все числа — из конфига.

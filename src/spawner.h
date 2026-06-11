@@ -11,6 +11,7 @@ class TelegraphSystem;   // система телеграфов (Фаза 2)
 class RangedSystem;      // система дальних атак / снарядов (Фаза 3)
 class Effects;           // визуальные эффекты (Фаза 4: телепорт, приземление)
 class HazardSystem;      // система опасных зон/луж (Фаза 5, ядовитый след)
+class Weapon;            // оружие игрока (Фаза 6, Шаг 33): враги читают его снаряды для уклонения
 
 class Spawner
 {
@@ -36,6 +37,7 @@ public:
     void SetRanged(RangedSystem* r);           // привязка системы снарядов (Фаза 3)
     void SetEffects(Effects* e);               // привязка системы эффектов (Фаза 4)
     void SetHazards(HazardSystem* h);           // привязка системы опасных зон (Фаза 5)
+    void SetWeapon(Weapon* w);                  // привязка оружия игрока для уклонения от снарядов (Шаг 33)
     Enemy* GetInactive();
     void SpawnWave(Vector2 center, const TileMap& map);
     void SpawnBoss(Vector2 center, const TileMap& map);
@@ -53,8 +55,12 @@ private:
     RangedSystem* ranged;          // куда враги выпускают снаряды (может быть nullptr)
     Effects* effects;              // визуальные эффекты приёмов мобильности (может быть nullptr)
     HazardSystem* hazards;         // куда враги роняют ядовитые лужи (может быть nullptr)
+    Weapon* weapon;                // оружие игрока: источник снарядов для уклонения (может быть nullptr)
     void AssignArt(Enemy* e, EnemyType t);
     void MaybeAssignMobility(Enemy* e);   // назначить приём мобильности при спавне (Фаза 4)
     void MaybeAssignSpecial(Enemy* e);    // назначить особую способность при спавне (Фаза 5)
     void MaybeAssignElite(Enemy* e);      // назначить элитный модификатор при спавне (Фаза 6, Шаг 32)
+    void MaybeAssignAI(Enemy* e);         // назначить улучшенный ИИ (уклонение от снарядов) при спавне (Шаг 33)
+    void ApplySeparation(const TileMap& map, float dt);      // групповое расталкивание врагов (Шаг 33)
+    void ApplyProjectileDodge(const TileMap& map, float dt);  // уклонение врагов от снарядов игрока (Шаг 33)
 };
