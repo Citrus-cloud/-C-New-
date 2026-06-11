@@ -81,6 +81,7 @@ int main()
     int subtitleLine = -1;
     bool newRecord = false;
     bool showDebug = false;     // отладочный показ правил конфига (клавиша F3, Фаза 1)
+    bool showOverlay = false;   // справочный оверлей: сводка забега и управление (клавиша F1, Шаг 35)
 
     GameState state = MENU;
 
@@ -209,6 +210,7 @@ int main()
         }
         else if (state == PLAYING)
         {
+            if (IsKeyPressed(KEY_F1)) showOverlay = !showOverlay;   // справочный оверлей (Шаг 35)
             if (IsKeyPressed(KEY_F3)) showDebug = !showDebug;   // отладка: показать правила конфига
             if (IsKeyPressed(KEY_F4))   // тест: вручную заказать круговую зону под игроком (Фаза 2)
                 telegraphs.SpawnCircle(player.position, 120.0f, 15, Tuning::kTelegraphDefaultFill, ORANGE);
@@ -391,6 +393,31 @@ int main()
                 effects.DrawScreen(screenWidth, screenHeight);
 
                 hud.DrawGame(player, spawner, weapon, survivalTime);
+
+                // Справочный оверлей (F1, Шаг 35): сводка забега и управление в одной панели.
+                // Латинский текст — читаем даже без кириллического шрифта (до Шага 37).
+                if (showOverlay)
+                {
+                    float ox = screenWidth - 380.0f, oy = 80.0f;
+                    float ow = 360.0f, oh = 322.0f;
+                    DrawRectangle((int)ox, (int)oy, (int)ow, (int)oh, Color{ 10, 10, 16, 210 });
+                    DrawRectangleLines((int)ox, (int)oy, (int)ow, (int)oh, Color{ 120, 200, 255, 255 });
+                    float tx = ox + 18.0f, ty = oy + 14.0f;
+                    hud.Text("INFO  (F1 to close)", tx, ty, 22, Color{ 120, 200, 255, 255 }); ty += 34.0f;
+                    hud.Text(TextFormat("Time:   %.1f s", survivalTime), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("Level:  %d", (int)player.level), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("HP:     %d / %d", (int)player.health, (int)player.maxHealth), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("Weapon: lvl %d  dmg %d  x%d  pierce %d%s",
+                        weapon.level, weapon.damage, weapon.projectileCount, weapon.pierce,
+                        weapon.evolved ? "  [EVO]" : ""), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("Coins:  %d", save.coins), tx, ty, 18, GOLD); ty += 30.0f;
+                    hud.Text("Controls:", tx, ty, 18, Color{ 120, 200, 255, 255 }); ty += 24.0f;
+                    hud.Text("WASD / Arrows - move", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("Space / Shift - dodge", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("ESC - pause", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F1 - this overlay", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F3 - debug stats", tx, ty, 16, LIGHTGRAY);
+                }
 
                 // Отладочный оверлей (F3): текущие правила конфига и статус приёмов (Шаг 5).
                 // Латинские имена — читаемы даже без кириллического шрифта.
