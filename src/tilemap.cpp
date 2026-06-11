@@ -157,10 +157,13 @@ void TileMap::Draw(const Camera2D& camera) const
     float minY = camera.target.y - halfH;
     float maxY = camera.target.y + halfH;
 
-    int colStart = (int)(minX / tileSize) - 1;
-    int colEnd   = (int)(maxX / tileSize) + 1;
-    int rowStart = (int)(minY / tileSize) - 1;
-    int rowEnd   = (int)(maxY / tileSize) + 1;
+    // Запас тайлов по краям видимой области берём из tuning.h (Шаг 5),
+    // чтобы при движении камеры по границе кадра не мелькала пустота.
+    const int margin = Tuning::kTileCullMargin;
+    int colStart = (int)(minX / tileSize) - margin;
+    int colEnd   = (int)(maxX / tileSize) + margin;
+    int rowStart = (int)(minY / tileSize) - margin;
+    int rowEnd   = (int)(maxY / tileSize) + margin;
     if (colStart < 0) colStart = 0;
     if (rowStart < 0) rowStart = 0;
     if (colEnd > Cols() - 1) colEnd = Cols() - 1;
