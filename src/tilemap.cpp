@@ -151,9 +151,11 @@ void TileMap::Generate(int width, int height, unsigned int seed)
         (void)sealed;
     }
 
-    // 3) Точки интереса (ориентиры для спавна/лута; наполнит Фаза 3).
-    //    Раскиданы по открытому полю, подальше от рамки.
-    int poiCount = 6 + (width * height) / 5000;
+    // 3) Точки интереса (ориентиры для спавна/лута; наполняет Фаза 3, Шаг 12).
+    //    Раскиданы по открытому полю, подальше от рамки. Частота берётся из
+    //    tuning.h: базовое число плюс по одному на kPoiAreaPerTiles тайлов площади.
+    int poiCount = Tuning::kPoiBaseCount
+                 + (Tuning::kPoiAreaPerTiles > 0 ? (width * height) / Tuning::kPoiAreaPerTiles : 0);
     if (bt + 2 <= width - bt - 3 && bt + 2 <= height - bt - 3)
     {
         std::uniform_int_distribution<int> pxd(bt + 2, width - bt - 3);
@@ -205,7 +207,11 @@ unsigned int TileMap::TileHash(int col, int row) const
     return h ^ (h >> 16);
 }
 
-// Рисует тайл цветным прямоугольником (fallback без текстур), с лёгкой вариацией оттенка.
+// Рисует тайл цветным прямоугольником (fallback без текстур).
+// v0.4 Шаг 11: пол рисуется как бесшовный «луг» — мягкая земляная база с
+// лёгкой вариацией оттенка (kGroundTintVariation) и почти невидимой сеткой,
+// чтобы большое поле смотрелось сплошным простором, а не «шахматкой». Поверх
+// детерминированно разбрасываются мелкие травинки (kGroundDetailChance).
 static void DrawFallbackTile(int x, int y, int tileSize, bool wall, unsigned int h)
 {
     if (wall)
@@ -213,14 +219,31 @@ static void DrawFallbackTile(int x, int y, int tileSize, bool wall, unsigned int
         unsigned char d = (unsigned char)(h % 16);
         DrawRectangle(x, y, tileSize, tileSize,
                       Color{ (unsigned char)(96 + d), (unsigned char)(66 + d / 2), (unsigned char)(40 + d / 3), 255 });
+        DrawRectangleLines(x, y, tileSize, tileSize, Color{ 0, 0, 0, 40 });
+        return;
     }
-    else
+
+    // Пол: землисто-зелёная база с мягкой вариацией оттенка между тайлами.
+    int var = Tuning::kGroundTintVariation;
+    int d  = (var > 0) ? (int)(h % (unsigned int)(var + 1)) : 0;
+    int d2 = (var > 0) ? (int)((h >> 5) % (unsigned int)(var + 1)) : 0;
+    DrawRectangle(x, y, tileSize, tileSize,
+                  Color{ (unsigned char)(36 + d), (unsigned char)(52 + d2), (unsigned char)(40 + d / 2), 255 });
+    // Почти невидимая сетка — только чтобы поле не выглядело идеально плоским.
+    DrawRectangleLines(x, y, tileSize, tileSize, Color{ 0, 0, 0, 16 });
+
+    // Мелкие травинки (детерминированно по хешу тайла) — оживляют простор.
+    if ((int)(h % 100) < Tuning::kGroundDetailChance)
     {
-        unsigned char d = (unsigned char)(h % 12);
-        DrawRectangle(x, y, tileSize, tileSize,
-                      Color{ (unsigned char)(28 + d), (unsigned char)(28 + d), (unsigned char)(38 + d), 255 });
+        float ts = (float)tileSize;
+        float gx = x + ts * (0.2f + 0.6f * (float)((h >> 7) % 100) / 100.0f);
+        float gy = y + ts * (0.3f + 0.5f * (float)((h >> 11) % 100) / 100.0f);
+        float bh = ts * 0.16f;
+        int   bw = (int)(ts * 0.03f); if (bw < 1) bw = 1;
+        Color blade{ 70, 132, 66, 90 };
+        DrawRectangle((int)gx, (int)(gy - bh), bw, (int)bh, blade);
+        DrawRectangle((int)gx + bw * 2, (int)(gy - bh * 0.7f), bw, (int)(bh * 0.7f), blade);
     }
-    DrawRectangleLines(x, y, tileSize, tileSize, Color{ 0, 0, 0, 40 });
 }
 
 // Рисует декоративный проп фолбэк-фигурой (Шаг 8): виден ДАЖЕ без текстур тайлсета.
@@ -273,6 +296,60 @@ static void DrawProp(int x, int y, int tileSize, char prop, unsigned int h)
             DrawRectangle((int)(cx - bw * 2.5f), (int)(cy - bh * 0.2f), (int)bw, (int)bh, Color{ 74, 138, 70, 255 });
             DrawRectangle((int)(cx - bw * 0.5f), (int)(cy - bh * 0.5f), (int)bw, (int)(bh * 1.2f), Color{ 90, 158, 84, 255 });
             DrawRectangle((int)(cx + bw * 1.8f), (int)(cy - bh * 0.2f), (int)bw, (int)bh, Color{ 74, 138, 70, 255 });
+            break;
+        }
+    }
+}
+
+// Рисует ОРИЕНТИР (зону интереса) — визуальный маркер на открытом поле (v0.4 Шаг 12).
+// Тип ориентира выбирается детерминированно по хешу тайла: 0 — поляна, 1 — руины,
+// 2 — алтарь. Это чистый визуал (коллизий нет), помогает не теряться на большом поле
+// и служит «магнитом» для дальнего спавна (Шаг 13) и наград (Шаг 14).
+static void DrawPoi(int cx, int cy, int tileSize, unsigned int h)
+{
+    float r = Tuning::kPoiMarkerRadius * (float)tileSize;
+    int kind = (int)(h % 3);
+    switch (kind)
+    {
+        case 0: // поляна — светло-зелёный круг с травинками по кругу
+        {
+            DrawCircle(cx, cy, r, Color{ 64, 116, 60, 70 });
+            DrawCircleLines(cx, cy, r, Color{ 92, 156, 86, 120 });
+            int bw = (int)(tileSize * 0.04f); if (bw < 1) bw = 1;
+            for (int i = 0; i < 6; i++)
+            {
+                float a = (float)i / 6.0f * 6.2832f;
+                float bx = cx + cosf(a) * r * 0.55f;
+                float by = cy + sinf(a) * r * 0.55f;
+                DrawRectangle((int)bx, (int)(by - tileSize * 0.18f), bw, (int)(tileSize * 0.18f), Color{ 90, 158, 84, 200 });
+            }
+            break;
+        }
+        case 1: // руины — каменное кольцо из блоков
+        {
+            DrawCircle(cx, cy, r, Color{ 60, 58, 64, 50 });
+            int blocks = 8;
+            for (int i = 0; i < blocks; i++)
+            {
+                float a = (float)i / (float)blocks * 6.2832f;
+                float bx = cx + cosf(a) * r * 0.8f;
+                float by = cy + sinf(a) * r * 0.8f;
+                float s = tileSize * 0.34f;
+                DrawRectangle((int)(bx - s * 0.5f), (int)(by - s * 0.5f), (int)s, (int)s, Color{ 120, 116, 110, 230 });
+                DrawRectangleLines((int)(bx - s * 0.5f), (int)(by - s * 0.5f), (int)s, (int)s, Color{ 80, 76, 72, 255 });
+            }
+            break;
+        }
+        default: // алтарь — постамент с кристаллом
+        {
+            DrawCircle(cx, cy, r, Color{ 70, 60, 90, 50 });
+            float pw = tileSize * 0.9f;
+            float ph = tileSize * 0.5f;
+            DrawRectangle((int)(cx - pw * 0.5f), (int)(cy - ph * 0.3f), (int)pw, (int)ph, Color{ 110, 104, 120, 235 });
+            DrawRectangleLines((int)(cx - pw * 0.5f), (int)(cy - ph * 0.3f), (int)pw, (int)ph, Color{ 70, 66, 80, 255 });
+            float cs = tileSize * 0.34f;
+            DrawCircle(cx, (int)(cy - ph * 0.3f), cs * 0.6f, Color{ 120, 200, 230, 180 });
+            DrawCircle(cx, (int)(cy - ph * 0.3f), cs * 0.3f, Color{ 200, 240, 255, 230 });
             break;
         }
     }
@@ -333,6 +410,21 @@ void TileMap::Draw(const Camera2D& camera) const
                 DrawProp(x, y, tileSize, decor[row][col], h);
             }
         }
+    }
+
+    // Ориентиры/зоны интереса (v0.4 Шаг 12): рисуем поверх поля, только в пределах
+    // видимой области (тот же кулинг, что и у тайлов). Точку старта (центр) пропускаем —
+    // там игрок. Тип маркера детерминирован хешом тайла, поэтому при перерисовке
+    // ориентир всегда выглядит одинаково.
+    for (size_t i = 0; i < rooms.size(); i++)
+    {
+        int rc = (int)rooms[i].x;
+        int rr = (int)rooms[i].y;
+        if (rc == spawnCol && rr == spawnRow) continue;
+        if (rc < colStart || rc > colEnd || rr < rowStart || rr > rowEnd) continue;
+        int px = rc * tileSize + tileSize / 2;
+        int py = rr * tileSize + tileSize / 2;
+        DrawPoi(px, py, tileSize, TileHash(rc, rr));
     }
 }
 
