@@ -29,6 +29,9 @@ void DamageEnemy(Enemy& e, int dmg, ExpOrbs& orbs, LootDrops& loot, Effects& eff
         // Разделение при смерти (Шаг 24): помечаем врага — осколки породит спавнер.
         if (e.splitsOnDeath) e.wantSplit = true;
 
+        // Взрывной элит (Шаг 32): помечаем — взрыв по площади создаст спавнер.
+        if (e.elite == ELITE_EXPLOSIVE) e.wantExplode = true;
+
         // Эффекты смерти (Шаг 16, 17).
         bool boss = (e.type == ENEMY_BOSS);
         effects.SpawnBlood(e.position, boss ? 40 : 14);

@@ -289,4 +289,32 @@ inline constexpr float kPoisonStatusTick     = 0.6f; // период тиков 
 inline constexpr int   kPoisonStatusDamage   = 3;    // урон за тик за КАЖДЫЙ стак яда
 inline constexpr int   kPoisonMaxStacks      = 5;    // максимум одновременных стаков яда
 
+// -- Элитные враги (Шаг 32): случайные модификаторы усиливают обычных врагов --
+// С шансом kEliteChance после kEliteUnlockTime обычный (не босс) враг при спавне
+// получает ОДИН модификатор: быстрый, бронированный, взрывной или гигант. Элиты
+// дают больше опыта (kEliteXpMul). Модификатор не зависит от приёма мобильности
+// и особой способности — враг может совмещать их.
+inline constexpr int   kEliteChance     = 14;    // шанс сделать врага элитой, %
+inline constexpr float kEliteUnlockTime = 35.0f; // с какой секунды забега возможны элиты
+inline constexpr float kEliteXpMul      = 2.5f;  // множитель опыта за убийство элиты
+
+// Быстрый: заметно выше скорость, запас HP не трогаем.
+inline constexpr float kEliteSwiftSpeedMul = 1.7f;
+
+// Бронированный: много HP, чуть медленнее обычного.
+inline constexpr float kEliteArmoredHealthMul = 3.0f;
+inline constexpr float kEliteArmoredSpeedMul  = 0.85f;
+
+// Взрывной: повышенный HP и взрыв по площади при гибели (через телеграф-зону).
+inline constexpr float kEliteExplosiveHealthMul = 1.5f;
+inline constexpr float kEliteExplosiveRadius    = 110.0f; // радиус взрыва, пикс
+inline constexpr int   kEliteExplosiveDamage    = 22;     // урон взрыва
+inline constexpr float kEliteExplosiveFill      = 0.35f;  // время заполнения зоны взрыва, сек
+
+// Гигант: крупнее, много HP, больно бьёт, чуть медленнее.
+inline constexpr float kEliteGiantSizeMul   = 1.6f;
+inline constexpr float kEliteGiantHealthMul = 2.5f;
+inline constexpr float kEliteGiantDamageMul = 1.8f;
+inline constexpr float kEliteGiantSpeedMul  = 0.9f;
+
 } // namespace Tuning

@@ -41,6 +41,17 @@ enum StatusKind {
     STATUS_POISON     // отравление: урон по тикам со стаками (зелёный)
 };
 
+// Элитные модификаторы врага (Фаза 6, Шаг 32). Назначаются обычным врагам при
+// спавне с шансом kEliteChance после kEliteUnlockTime. Усиливают статы и иногда
+// дают особый эффект (взрыв при смерти). Множители/радиусы — в tuning.h.
+enum EliteKind {
+    ELITE_NONE = 0,    // обычный враг (не элита)
+    ELITE_SWIFT,       // быстрый: заметно выше скорость
+    ELITE_ARMORED,     // бронированный: большой запас HP, чуть медленнее
+    ELITE_EXPLOSIVE,   // взрывной: взрыв по площади при гибели
+    ELITE_GIANT        // гигант: крупнее, больше HP и урона
+};
+
 class TelegraphSystem;   // форвард: враг «заказывает» зоны (slam, путь рывка)
 class Effects;           // форвард: визуальные эффекты телепорта/приземления
 
@@ -126,12 +137,17 @@ public:
     int   poisonStacks; // текущее число стаков яда (множит урон тика)
     float freezeTimer;  // остаток времени заморозки, сек (>0 = замедлен)
 
+    // --- Элитные модификаторы (Фаза 6, Шаг 32) ---
+    int  elite;         // EliteKind: назначенный элитный модификатор (ELITE_NONE = обычный)
+    bool wantExplode;   // флаг: взрывной элит погиб и должен взорваться (читает спавнер)
+
     Enemy();
     void Spawn(Vector2 pos, EnemyType t);
     void ApplyBoss(const BossDef& def);   // применить статы и механики босса (Шаг 20-22)
     void ApplySpecial(int kind);          // назначить особую способность (Шаг 23-28)
     void ApplyKnockback(Vector2 dir, float force);  // толчок от попадания (Шаг 30)
     void ApplyStatus(int kind);           // наложить статус-эффект: горение/заморозка/яд (Шаг 31)
+    void ApplyElite(int kind);            // назначить элитный модификатор и усилить статы (Шаг 32)
     void Update(float deltaTime, Vector2 playerPos, const TileMap& map,
                 TelegraphSystem* telegraphs = nullptr, Effects* effects = nullptr);
     void Draw() const;

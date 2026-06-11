@@ -56,4 +56,5 @@ private:
     void AssignArt(Enemy* e, EnemyType t);
     void MaybeAssignMobility(Enemy* e);   // назначить приём мобильности при спавне (Фаза 4)
     void MaybeAssignSpecial(Enemy* e);    // назначить особую способность при спавне (Фаза 5)
+    void MaybeAssignElite(Enemy* e);      // назначить элитный модификатор при спавне (Фаза 6, Шаг 32)
 };
