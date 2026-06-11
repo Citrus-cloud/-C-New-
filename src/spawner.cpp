@@ -284,7 +284,7 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
         Enemy* e = GetInactive();
         if (!e) break;
         float angle = (float)i / count * 2.0f * PI;
-        float r = 500.0f;
+        float r = Tuning::kWaveSpawnRadius;   // радиус кольца появления — из конфига (за краем обзора, Шаг 4)
         Vector2 pos = { center.x + cosf(angle) * r, center.y + sinf(angle) * r };
         pos = map.FindFreeSpot(pos, 16.0f);
 
@@ -307,7 +307,7 @@ void Spawner::SpawnBoss(Vector2 center, const TileMap& map)
 {
     Enemy* e = GetInactive();
     if (!e) return;
-    Vector2 pos = { center.x + 600.0f, center.y };
+    Vector2 pos = { center.x + Tuning::kBossSpawnDistance, center.y };   // дистанция спавна босса — из конфига (Шаг 4)
     pos = map.FindFreeSpot(pos, 38.0f);
 
     int bossId = bossSpawnCount % BOSS_COUNT;   // чередуем боссов
@@ -491,7 +491,7 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
             if (e.summonTimer <= 0.0f)
             {
                 e.summonTimer = GetBossDef(e.bossId).summonInterval;
-                // Не заспавниваем карту: призыв работает только пока активных меньше лимита.
+                // Не заспавним карту: призыв работает только пока активных меньше лимита.
                 if (ActiveCount() < Tuning::kSummonMaxActive)
                 {
                     for (int s = 0; s < Tuning::kSummonMinionCount; s++)
