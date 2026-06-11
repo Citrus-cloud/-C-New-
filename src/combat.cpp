@@ -167,17 +167,47 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
             if (!e.active || e.dying) continue;
             if (CheckCollisionRecs(p.GetRect(), e.GetRect()))
             {
-                DamageEnemy(e, p.damage, orbs, loot, effects);
+                // Реакция «Перелом» (Шаг 34): прямое попадание по ЗАМОРОЖЕННОМУ
+                // врагу наносит бонусный урон и раскалывает лёд (заморозка снимается).
+                int hitDamage = p.damage;
+                if (e.freezeTimer > 0.0f)
+                {
+                    hitDamage = (int)(hitDamage * Tuning::kShatterDamageMul);
+                    e.freezeTimer = 0.0f;
+                    effects.SpawnSparks(e.position, Color{ 150, 220, 255, 255 }, 6);
+                }
+                DamageEnemy(e, hitDamage, orbs, loot, effects);
                 // Отбрасывание от попадания (Шаг 30): толкаем врага прочь от игрока.
                 e.ApplyKnockback({ e.position.x - playerPos.x, e.position.y - playerPos.y }, Tuning::kKnockbackForce);
-                // Шанс наложить статус-эффект при попадании (Шаг 31): не более одного из трёх.
-                int sroll = GetRandomValue(0, 99);
-                if (sroll < Tuning::kBurnChance)
-                    e.ApplyStatus(STATUS_BURN);
-                else if (sroll < Tuning::kBurnChance + Tuning::kFreezeChance)
-                    e.ApplyStatus(STATUS_FREEZE);
-                else if (sroll < Tuning::kBurnChance + Tuning::kFreezeChance + Tuning::kPoisonStatusChance)
-                    e.ApplyStatus(STATUS_POISON);
+                // Статус-эффект при попадании (Шаг 31): не более одного из трёх.
+                // Накладываем только если враг пережил это попадание.
+                if (e.active && !e.dying)
+                {
+                    int sroll = GetRandomValue(0, 99);
+                    if (sroll < Tuning::kBurnChance)
+                    {
+                        e.ApplyStatus(STATUS_BURN);
+                    }
+                    else if (sroll < Tuning::kBurnChance + Tuning::kFreezeChance)
+                    {
+                        // Реакция «Пар» (Шаг 34): заморозка по ГОРЯЩЕМУ врагу гасит обе
+                        // стихии и наносит всплеск урона вместо наложения заморозки.
+                        if (e.burnTimer > 0.0f)
+                        {
+                            e.burnTimer = 0.0f;
+                            effects.SpawnSparks(e.position, Color{ 230, 230, 230, 255 }, 8);
+                            DamageEnemy(e, Tuning::kSteamBurstDamage, orbs, loot, effects);
+                        }
+                        else
+                        {
+                            e.ApplyStatus(STATUS_FREEZE);
+                        }
+                    }
+                    else if (sroll < Tuning::kBurnChance + Tuning::kFreezeChance + Tuning::kPoisonStatusChance)
+                    {
+                        e.ApplyStatus(STATUS_POISON);
+                    }
+                }
                 if (p.pierce > 0) p.pierce--;
                 else p.active = false;
                 if (!p.active) break;
