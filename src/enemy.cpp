@@ -23,7 +23,8 @@ Enemy::Enemy()
       knockbackVel({ 0.0f, 0.0f }),
       burnTimer(0.0f), burnTick(0.0f), poisonTimer(0.0f), poisonTick(0.0f),
       poisonStacks(0), freezeTimer(0.0f),
-      elite(ELITE_NONE), wantExplode(false)
+      elite(ELITE_NONE), wantExplode(false),
+      projectileDodger(false), dodgeReactCd(0.0f)
 {
 }
 
@@ -90,6 +91,10 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
     // Сброс элитного модификатора (Фаза 6, Шаг 32) — конкретный назначает спавнер.
     elite = ELITE_NONE;
     wantExplode = false;
+
+    // Сброс улучшенного ИИ (Фаза 6, Шаг 33) — флаг уклонения назначает спавнер.
+    projectileDodger = false;
+    dodgeReactCd = 0.0f;
 
     switch (t)
     {

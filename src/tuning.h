@@ -317,4 +317,21 @@ inline constexpr float kEliteGiantHealthMul = 2.5f;
 inline constexpr float kEliteGiantDamageMul = 1.8f;
 inline constexpr float kEliteGiantSpeedMul  = 0.9f;
 
+// -- Улучшенный ИИ врагов (Шаг 33): уклонение от снарядов и групповое поведение --
+// Часть обычных врагов (после kProjDodgeUnlockTime) умеет «чувствовать» летящий
+// в них снаряд игрока и делать короткий шаг в сторону от его линии полёта.
+// Групповое расталкивание (separation) не даёт врагам слипаться в одну точку —
+// они держат небольшую дистанцию друг от друга, окружая игрока естественнее.
+// Обе механики работают как мягкие сдвиги позиции с проверкой стен (см. Spawner).
+inline constexpr int   kProjDodgeChance      = 25;    // доля врагов, умеющих уклоняться, %
+inline constexpr float kProjDodgeUnlockTime  = 45.0f; // с какой секунды забега появляются «уклонисты»
+inline constexpr float kProjDodgeSenseRadius = 95.0f; // на каком расстоянии враг замечает снаряд, пикс
+inline constexpr float kProjDodgeThreatDot   = 0.55f; // насколько «в лоб» летит снаряд, чтобы реагировать (косинус)
+inline constexpr float kProjDodgeSpeed       = 240.0f;// скорость шага уклонения, пикс/сек
+inline constexpr float kProjDodgeCooldown    = 0.7f;  // пауза между реакциями уклонения, сек
+
+inline constexpr float kSeparationRadius       = 28.0f; // ближе этого враги расталкиваются, пикс
+inline constexpr float kSeparationForce        = 90.0f; // сила расталкивания, пикс/сек
+inline constexpr int   kSeparationMaxNeighbors = 6;     // сколько соседей максимум учитываем (для скорости)
+
 } // namespace Tuning

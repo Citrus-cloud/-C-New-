@@ -141,6 +141,10 @@ public:
     int  elite;         // EliteKind: назначенный элитный модификатор (ELITE_NONE = обычный)
     bool wantExplode;   // флаг: взрывной элит погиб и должен взорваться (читает спавнер)
 
+    // --- Улучшенный ИИ (Фаза 6, Шаг 33) ---
+    bool  projectileDodger; // умеет ли враг уклоняться от снарядов игрока (назначает спавнер)
+    float dodgeReactCd;     // кулдаун между шагами уклонения, сек
+
     Enemy();
     void Spawn(Vector2 pos, EnemyType t);
     void ApplyBoss(const BossDef& def);   // применить статы и механики босса (Шаг 20-22)
