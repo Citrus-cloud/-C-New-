@@ -136,6 +136,19 @@ void Spawner::MaybeAssignSpecial(Enemy* e)
     }
 }
 
+// Назначает обычному врагу ЭЛИТНЫЙ модификатор (Фаза 6, Шаг 32). С вероятностью
+// kEliteChance после kEliteUnlockTime выбирает один из модификаторов равновероятно.
+// Не зависит от мобильности/особой способности: элита может иметь и их.
+void Spawner::MaybeAssignElite(Enemy* e)
+{
+    if (!e || e->type == ENEMY_BOSS) return;
+    if (elapsed < Tuning::kEliteUnlockTime) return;
+    if (GetRandomValue(0, 99) >= Tuning::kEliteChance) return;
+
+    const int kinds[4] = { ELITE_SWIFT, ELITE_ARMORED, ELITE_EXPLOSIVE, ELITE_GIANT };
+    e->ApplyElite(kinds[GetRandomValue(0, 3)]);
+}
+
 Enemy* Spawner::GetInactive()
 {
     for (auto& e : enemies)
@@ -166,6 +179,7 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
         AssignArt(e, t);
         MaybeAssignMobility(e);   // Фаза 4: возможный приём перемещения
         MaybeAssignSpecial(e);    // Фаза 5: возможная особая способность
+        MaybeAssignElite(e);      // Фаза 6 (Шаг 32): возможный элитный модификатор
     }
 }
 
@@ -285,6 +299,23 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
                 shard->maxHealth = hp;
                 shard->health = hp;
                 shard->size = e.size * Tuning::kSplitSizeFrac;
+            }
+        }
+
+        // --- Взрывной элит (Шаг 32): при гибели взрывается по площади ---
+        // Урон наносится через телеграф-зону (короткое предупреждение), а не мгновенно.
+        if (e.wantExplode)
+        {
+            e.wantExplode = false;
+            if (telegraphs)
+                telegraphs->SpawnCircle(e.position, Tuning::kEliteExplosiveRadius,
+                                        Tuning::kEliteExplosiveDamage, Tuning::kEliteExplosiveFill,
+                                        Color{ 255, 120, 30, 255 });
+            if (effects)
+            {
+                effects->SpawnExplosion(e.position, 1.6f);
+                effects->SpawnSparks(e.position, Color{ 255, 140, 40, 255 }, 20);
+                effects->Shake(6.0f, 0.2f);
             }
         }
 

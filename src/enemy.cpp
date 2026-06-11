@@ -22,7 +22,8 @@ Enemy::Enemy()
       splitsOnDeath(false), wantSplit(false), poisonDropTimer(0.0f), healTimer(0.0f),
       knockbackVel({ 0.0f, 0.0f }),
       burnTimer(0.0f), burnTick(0.0f), poisonTimer(0.0f), poisonTick(0.0f),
-      poisonStacks(0), freezeTimer(0.0f)
+      poisonStacks(0), freezeTimer(0.0f),
+      elite(ELITE_NONE), wantExplode(false)
 {
 }
 
@@ -85,6 +86,10 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
     poisonTick = 0.0f;
     poisonStacks = 0;
     freezeTimer = 0.0f;
+
+    // Сброс элитного модификатора (Фаза 6, Шаг 32) — конкретный назначает спавнер.
+    elite = ELITE_NONE;
+    wantExplode = false;
 
     switch (t)
     {
@@ -174,6 +179,41 @@ void Enemy::ApplyStatus(int kind)
         default:
             break;
     }
+}
+
+// Назначает элитный модификатор и применяет усиление статов (Шаг 32).
+// Вызывается спавнером ПОСЛЕ Spawn(), поэтому базовые статы уже выставлены —
+// здесь мы их домножаем. Элиты дают больше опыта (kEliteXpMul).
+void Enemy::ApplyElite(int kind)
+{
+    elite = kind;
+    switch (kind)
+    {
+        case ELITE_SWIFT:
+            speed *= Tuning::kEliteSwiftSpeedMul;
+            break;
+        case ELITE_ARMORED:
+            maxHealth = (int)(maxHealth * Tuning::kEliteArmoredHealthMul);
+            health = maxHealth;
+            speed *= Tuning::kEliteArmoredSpeedMul;
+            break;
+        case ELITE_EXPLOSIVE:
+            maxHealth = (int)(maxHealth * Tuning::kEliteExplosiveHealthMul);
+            health = maxHealth;
+            break;
+        case ELITE_GIANT:
+            size *= Tuning::kEliteGiantSizeMul;
+            maxHealth = (int)(maxHealth * Tuning::kEliteGiantHealthMul);
+            health = maxHealth;
+            damage = (int)(damage * Tuning::kEliteGiantDamageMul);
+            speed *= Tuning::kEliteGiantSpeedMul;
+            break;
+        default:
+            elite = ELITE_NONE;
+            return;
+    }
+    xpValue = (int)(xpValue * Tuning::kEliteXpMul);
+    if (xpValue < 1) xpValue = 1;
 }
 
 Rectangle Enemy::GetRect() const
@@ -563,6 +603,23 @@ void Enemy::Draw() const
     {
         DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + 6.0f, Color{ 90, 180, 255, 255 });
         DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + 10.0f, Color{ 90, 180, 255, 160 });
+    }
+
+    // Элитная подсветка (Шаг 32): пульсирующее цветное кольцо вокруг элиты.
+    if (elite != ELITE_NONE)
+    {
+        Color ec = WHITE;
+        switch (elite)
+        {
+            case ELITE_SWIFT:     ec = Color{ 120, 230, 255, 255 }; break; // голубой — скорость
+            case ELITE_ARMORED:   ec = Color{ 210, 210, 235, 255 }; break; // серебристый — броня
+            case ELITE_EXPLOSIVE: ec = Color{ 255, 140, 40, 255 };  break; // оранжевый — взрыв
+            case ELITE_GIANT:     ec = Color{ 220, 120, 255, 255 }; break; // фиолетовый — гигант
+            default: break;
+        }
+        float pulse = 4.0f + 2.0f * sinf((float)GetTime() * 6.0f);
+        DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + pulse, ec);
+        DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + pulse + 3.0f, Fade(ec, 0.5f));
     }
 
     DrawHealthBar();
