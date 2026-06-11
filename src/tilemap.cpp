@@ -30,82 +30,108 @@ void TileMap::LoadArt(TextureManager& tex)
     hasArt = (texFloor.id != 0 || texWall.id != 0);
 }
 
-// Процедурная генерация: случайные комнаты, соединённые коридорами.
+// Процедурная генерация ОТКРЫТОГО поля (v0.4, Фаза 2, Шаг 7).
+// В отличие от прежних «комнат с коридорами», поле стартует полностью
+// проходимым ('.'), а стены добавляются РЕДКИМИ небольшими скоплениями.
+// Так получается простор как в Vampire Survivors: минимум стен, широкие
+// проходы, без узких коридоров и тупиков. Вся «открытость» крутится
+// параметрами из tuning.h (Шаг 6): kWallDensity, kMinCorridorWidth,
+// kBorderWallThickness, kObstacleClusterMin/Max, kOpenZoneRadius.
 void TileMap::Generate(int width, int height, unsigned int seed)
 {
     worldSeed = seed;  // запоминаем seed для детерминированных вариаций тайлов
     std::mt19937 rng(seed);
-    grid.assign(height, std::string(width, 'W'));
+    grid.assign(height, std::string(width, '.'));
     decor.assign(height, std::string(width, ' '));
     rooms.clear();
 
-    auto carveRoom = [&](int rx, int ry, int rw, int rh) {
-        for (int y = ry; y < ry + rh; y++)
-            for (int x = rx; x < rx + rw; x++)
-                if (x > 0 && y > 0 && x < width - 1 && y < height - 1)
-                    grid[y][x] = '.';
-    };
-    auto carveH = [&](int x1, int x2, int y) {
-        for (int x = std::min(x1, x2); x <= std::max(x1, x2); x++)
-            if (x > 0 && y > 0 && x < width - 1 && y < height - 1)
-                grid[y][x] = '.';
-    };
-    auto carveV = [&](int y1, int y2, int x) {
-        for (int y = std::min(y1, y2); y <= std::max(y1, y2); y++)
-            if (x > 0 && y > 0 && x < width - 1 && y < height - 1)
-                grid[y][x] = '.';
+    // Точка старта игрока — центр поля; вокруг неё держим гарантированно пустую зону.
+    spawnCol = width / 2;
+    spawnRow = height / 2;
+
+    // 1) Внешняя стена-рамка по краю, чтобы игрок и враги не уходили за поле.
+    int bt = Tuning::kBorderWallThickness;
+    if (bt < 1) bt = 1;
+    if (bt > width / 2)  bt = width / 2;
+    if (bt > height / 2) bt = height / 2;
+    for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+            if (x < bt || y < bt || x >= width - bt || y >= height - bt)
+                grid[y][x] = 'W';
+
+    // Есть ли ВНУТРЕННЯЯ стена рядом с (px,py) в радиусе r тайлов.
+    // Рамку при этом не учитываем — препятствия можно ставить близко к краю.
+    auto interiorWallNear = [&](int px, int py, int r) -> bool {
+        for (int y = py - r; y <= py + r; y++)
+            for (int x = px - r; x <= px + r; x++)
+            {
+                if (x < bt || y < bt || x >= width - bt || y >= height - bt) continue;
+                if (grid[y][x] == 'W') return true;
+            }
+        return false;
     };
 
-    // Число комнат масштабируем под площадь карты (v0.4, Фаза 1, Шаг 2):
-    // база (22..32 комнаты) рассчитана на поле kMapBaseWidthTiles x kMapBaseHeightTiles,
-    // поэтому на увеличенной карте комнат пропорционально больше — поле не пустует.
-    double baseArea = (double)(Tuning::kMapBaseWidthTiles * Tuning::kMapBaseHeightTiles);
-    double areaRatio = baseArea > 0.0 ? (double)(width * height) / baseArea : 1.0;
-    int roomMin = (int)(22 * areaRatio);
-    int roomMax = (int)(32 * areaRatio);
-    if (roomMin < 1) roomMin = 1;
-    if (roomMax < roomMin) roomMax = roomMin;
-    std::uniform_int_distribution<int> roomCount(roomMin, roomMax);
-    int n = roomCount(rng);
-    int prevcx = 0, prevcy = 0;
-    bool first = true;
-
-    for (int i = 0; i < n; i++)
+    // 2) Редкие скопления препятствий. Доля стен стремится к kWallDensity, но
+    //    кляксами (kObstacleClusterMin..Max), разнесёнными минимум на
+    //    kMinCorridorWidth тайлов — отсюда широкие проходы без коридоров.
+    double targetWalls = (double)(width * height) * (double)Tuning::kWallDensity;
+    int wallBudget = (int)targetWalls;
+    if (wallBudget < 0) wallBudget = 0;
+    int placed = 0;
+    long long openR2 = (long long)Tuning::kOpenZoneRadius * Tuning::kOpenZoneRadius;
+    int gap = Tuning::kMinCorridorWidth; if (gap < 1) gap = 1;
+    int cmin = Tuning::kObstacleClusterMin; if (cmin < 1) cmin = 1;
+    int cmax = Tuning::kObstacleClusterMax; if (cmax < cmin) cmax = cmin;
+    if (width - bt - 1 >= bt && height - bt - 1 >= bt)
     {
-        std::uniform_int_distribution<int> wd(4, 10), hd(4, 9);
-        int rw = wd(rng), rh = hd(rng);
-        if (width - rw - 2 < 1 || height - rh - 2 < 1) continue;
-        std::uniform_int_distribution<int> xd(1, width - rw - 2), yd(1, height - rh - 2);
-        int rx = xd(rng), ry = yd(rng);
-        carveRoom(rx, ry, rw, rh);
-
-        int cx = rx + rw / 2, cy = ry + rh / 2;
-        if (!first)
+        std::uniform_int_distribution<int> xd(bt, width - bt - 1);
+        std::uniform_int_distribution<int> yd(bt, height - bt - 1);
+        std::uniform_int_distribution<int> clusterDist(cmin, cmax);
+        int guard = 0, guardMax = wallBudget * 80 + 2000;
+        while (placed < wallBudget && guard < guardMax)
         {
-            carveH(prevcx, cx, prevcy);  // горизонтальный коридор
-            carveV(prevcy, cy, cx);      // и вертикальный - получается L
+            guard++;
+            int ox = xd(rng), oy = yd(rng);
+            // Скопление не должно лезть в стартовую зону игрока.
+            long long ddx = ox - spawnCol, ddy = oy - spawnRow;
+            if (ddx * ddx + ddy * ddy <= openR2) continue;
+            // Держим дистанцию до других препятствий — это и есть ширина проходов.
+            if (interiorWallNear(ox, oy, gap)) continue;
+            int cw = clusterDist(rng), ch = clusterDist(rng);
+            for (int y = oy; y < oy + ch && y < height - bt; y++)
+                for (int x = ox; x < ox + cw && x < width - bt; x++)
+                {
+                    long long dx = x - spawnCol, dy = y - spawnRow;
+                    if (dx * dx + dy * dy <= openR2) continue;
+                    if (grid[y][x] == '.') { grid[y][x] = 'W'; placed++; }
+                }
         }
-        else
-        {
-            spawnCol = cx;
-            spawnRow = cy;
-            first = false;
-        }
-        rooms.push_back({ (float)cx, (float)cy });
-        prevcx = cx;
-        prevcy = cy;
     }
 
-    // Декорации на полу (Шаг 12): кости / лужи / трава.
+    // 3) Точки интереса (ориентиры для спавна/лута; наполнит Фаза 3).
+    //    Раскиданы по открытому полю, подальше от рамки.
+    int poiCount = 6 + (width * height) / 5000;
+    if (bt + 2 <= width - bt - 3 && bt + 2 <= height - bt - 3)
+    {
+        std::uniform_int_distribution<int> pxd(bt + 2, width - bt - 3);
+        std::uniform_int_distribution<int> pyd(bt + 2, height - bt - 3);
+        for (int i = 0; i < poiCount; i++)
+            rooms.push_back({ (float)pxd(rng), (float)pyd(rng) });
+    }
+    // Центр (точка старта) тоже считаем ориентиром.
+    rooms.push_back({ (float)spawnCol, (float)spawnRow });
+
+    // Декор на полу: частота из конфига (kDecorDensity). Декор НЕ блокирует движение.
+    int decorPct = (int)(Tuning::kDecorDensity * 100.0f);
+    if (decorPct < 0) decorPct = 0;
     std::uniform_int_distribution<int> decorRoll(0, 99);
+    std::uniform_int_distribution<int> decorType(0, 2);
     for (int y = 1; y < height - 1; y++)
         for (int x = 1; x < width - 1; x++)
-            if (grid[y][x] == '.')
+            if (grid[y][x] == '.' && decorRoll(rng) < decorPct)
             {
-                int r = decorRoll(rng);
-                if (r < 4)       decor[y][x] = 'b';
-                else if (r < 8)  decor[y][x] = 'p';
-                else if (r < 14) decor[y][x] = 'g';
+                int t = decorType(rng);
+                decor[y][x] = (t == 0) ? 'b' : (t == 1) ? 'p' : 'g';
             }
 }
 
