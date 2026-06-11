@@ -1,5 +1,6 @@
 #include "tilemap.h"
 #include "textures.h"
+#include "tuning.h"
 #include <cmath>
 #include <random>
 #include <algorithm>
@@ -9,8 +10,10 @@ TileMap::TileMap()
 {
     // Обнуляем хендлы текстур (загружаются позже через LoadArt).
     texFloor = texWall = texBones = texPuddle = texGrass = Texture2D{ 0 };
-    // Большая карта (Шаг 13). Фиксированный seed для первого экрана.
-    Generate(96, 72, 20240609u);
+    // Размер карты берём из tuning.h (v0.4, Фаза 1, Шаг 2): масштабируемое открытое поле.
+    // Размер тайла тоже из конфига, чтобы всё крутилось в одном месте.
+    tileSize = Tuning::kMapTileSize;
+    Generate(Tuning::MapWidthTiles(), Tuning::MapHeightTiles(), 20240609u);
 }
 
 // Загружает текстуры тайлсета (Шаг 10). Если файла нет — хендл остаётся нулевым
@@ -53,8 +56,16 @@ void TileMap::Generate(int width, int height, unsigned int seed)
                 grid[y][x] = '.';
     };
 
-    // Больше комнат для большей карты (Шаг 13).
-    std::uniform_int_distribution<int> roomCount(22, 32);
+    // Число комнат масштабируем под площадь карты (v0.4, Фаза 1, Шаг 2):
+    // база (22..32 комнаты) рассчитана на поле kMapBaseWidthTiles x kMapBaseHeightTiles,
+    // поэтому на увеличенной карте комнат пропорционально больше — поле не пустует.
+    double baseArea = (double)(Tuning::kMapBaseWidthTiles * Tuning::kMapBaseHeightTiles);
+    double areaRatio = baseArea > 0.0 ? (double)(width * height) / baseArea : 1.0;
+    int roomMin = (int)(22 * areaRatio);
+    int roomMax = (int)(32 * areaRatio);
+    if (roomMin < 1) roomMin = 1;
+    if (roomMax < roomMin) roomMax = roomMin;
+    std::uniform_int_distribution<int> roomCount(roomMin, roomMax);
     int n = roomCount(rng);
     int prevcx = 0, prevcy = 0;
     bool first = true;
