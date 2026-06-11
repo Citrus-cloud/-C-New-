@@ -20,7 +20,9 @@ Enemy::Enemy()
       flankSide(1), flankSwitchTimer(0.0f), drawYOffset(0.0f),
       special(SPEC_NONE), shielded(false), shieldTimer(0.0f), shieldCd(0.0f),
       splitsOnDeath(false), wantSplit(false), poisonDropTimer(0.0f), healTimer(0.0f),
-      knockbackVel({ 0.0f, 0.0f })
+      knockbackVel({ 0.0f, 0.0f }),
+      burnTimer(0.0f), burnTick(0.0f), poisonTimer(0.0f), poisonTick(0.0f),
+      poisonStacks(0), freezeTimer(0.0f)
 {
 }
 
@@ -75,6 +77,14 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
 
     // Сброс отбрасывания (Фаза 6, Шаг 30).
     knockbackVel = { 0.0f, 0.0f };
+
+    // Сброс статусов-эффектов (Фаза 6, Шаг 31).
+    burnTimer = 0.0f;
+    burnTick = 0.0f;
+    poisonTimer = 0.0f;
+    poisonTick = 0.0f;
+    poisonStacks = 0;
+    freezeTimer = 0.0f;
 
     switch (t)
     {
@@ -141,6 +151,29 @@ void Enemy::ApplyKnockback(Vector2 dir, float force)
     float resist = (type == ENEMY_TANK) ? Tuning::kKnockbackTankResist : 1.0f;
     knockbackVel.x += dir.x / len * force * resist;
     knockbackVel.y += dir.y / len * force * resist;
+}
+
+// Накладывает статус-эффект на врага (Шаг 31). Длительности/сила — из tuning.h.
+// Горение/яд тикают в Weapon::Update (там есть доступ к награде), заморозка — в Update.
+void Enemy::ApplyStatus(int kind)
+{
+    switch (kind)
+    {
+        case STATUS_BURN:
+            if (burnTimer <= 0.0f) burnTick = Tuning::kBurnTick;
+            burnTimer = Tuning::kBurnDuration;
+            break;
+        case STATUS_FREEZE:
+            freezeTimer = Tuning::kFreezeDuration;
+            break;
+        case STATUS_POISON:
+            if (poisonTimer <= 0.0f) poisonTick = Tuning::kPoisonStatusTick;
+            poisonTimer = Tuning::kPoisonStatusDuration;
+            if (poisonStacks < Tuning::kPoisonMaxStacks) poisonStacks++;
+            break;
+        default:
+            break;
+    }
 }
 
 Rectangle Enemy::GetRect() const
@@ -393,10 +426,18 @@ void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map,
         if (fabsf(knockbackVel.y) < 4.0f) knockbackVel.y = 0.0f;
     }
 
+    // Заморозка (Шаг 31): отсчитываем время статуса; замедление применяется к шагу ниже.
+    float freezeFactor = 1.0f;
+    if (freezeTimer > 0.0f)
+    {
+        freezeTimer -= deltaTime;
+        freezeFactor = Tuning::kFreezeFactor;
+    }
+
     // Фаза 4: приёмы мобильности. Если приём занял кадр — обычное движение пропускаем.
     if (UpdateMobility(deltaTime, playerPos, map, telegraphs, effects)) return;
 
-    float step = speed * deltaTime;
+    float step = speed * deltaTime * freezeFactor;
 
     // Фланг (Шаг 21): держим дистанцию и заходим сбоку, а не в лоб.
     if (mobility == MOB_FLANK)
@@ -490,17 +531,26 @@ void Enemy::Draw() const
 
     bool charging = dashing || dashTelegraphing;   // рывок и его подготовка — оранжевая подсветка
 
+    // Цветовая подсветка статусов (Шаг 31): заморозка > горение > яд.
     if (walkAnim.Valid())
     {
         float target = size * 2.6f;
         float h = (float)walkAnim.FrameHeight();
         float sc = (h > 0.0f) ? target / h : 1.0f;
-        Color tint = charging ? Color{ 255, 180, 120, 255 } : WHITE;
+        Color tint = WHITE;
+        if (charging)                tint = Color{ 255, 180, 120, 255 };
+        else if (freezeTimer > 0.0f) tint = Color{ 150, 210, 255, 255 };
+        else if (burnTimer > 0.0f)   tint = Color{ 255, 130, 70, 255 };
+        else if (poisonTimer > 0.0f) tint = Color{ 150, 255, 120, 255 };
         walkAnim.Draw(drawPos, sc, facingLeft, tint);
     }
     else
     {
-        Color c = charging ? ORANGE : color;
+        Color c = color;
+        if (charging)                c = ORANGE;
+        else if (freezeTimer > 0.0f) c = Color{ 120, 190, 255, 255 };
+        else if (burnTimer > 0.0f)   c = Color{ 255, 110, 60, 255 };
+        else if (poisonTimer > 0.0f) c = Color{ 120, 230, 90, 255 };
         DrawRectangle((int)(drawPos.x - size), (int)(drawPos.y - size),
                       (int)(size * 2.0f), (int)(size * 2.0f), c);
         if (type == ENEMY_BOSS)

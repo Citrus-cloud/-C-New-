@@ -1,10 +1,10 @@
 #include "combat.h"
 #include "effects.h"
-#include "tuning.h"   // сила отбрасывания от попаданий (Фаза 6, Шаг 30)
+#include "tuning.h"   // сила отбрасывания и параметры статусов (Фаза 6, Шаг 30-31)
 #include <cmath>
 
 // Общая функция урона по врагу: эффекты + награда при смерти.
-// Используется и оружием, и способностями игрока (Фаза 5).
+// Используется и оружием, и способностями игрока (Фаза 5), и тиками статусов (Шаг 31).
 void DamageEnemy(Enemy& e, int dmg, ExpOrbs& orbs, LootDrops& loot, Effects& effects)
 {
     if (!e.active || e.dying) return;
@@ -95,6 +95,36 @@ void Weapon::Evolve()
 
 void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs, LootDrops& loot, Effects& effects)
 {
+    // Тики статусов горения и яда (Шаг 31). Урон идёт через DamageEnemy, чтобы
+    // корректно срабатывали награда (XP/лут) и эффекты при смерти от статуса.
+    for (Enemy& e : spawner.enemies)
+    {
+        if (!e.active || e.dying) continue;
+        if (e.burnTimer > 0.0f)
+        {
+            e.burnTimer -= dt;
+            e.burnTick -= dt;
+            if (e.burnTick <= 0.0f)
+            {
+                e.burnTick = Tuning::kBurnTick;
+                effects.SpawnSparks(e.position, Color{ 255, 130, 40, 255 }, 3);
+                DamageEnemy(e, Tuning::kBurnDamage, orbs, loot, effects);
+            }
+        }
+        if (e.active && !e.dying && e.poisonTimer > 0.0f)
+        {
+            e.poisonTimer -= dt;
+            e.poisonTick -= dt;
+            if (e.poisonTick <= 0.0f)
+            {
+                e.poisonTick = Tuning::kPoisonStatusTick;
+                effects.SpawnSparks(e.position, Color{ 120, 230, 90, 255 }, 3);
+                DamageEnemy(e, Tuning::kPoisonStatusDamage * e.poisonStacks, orbs, loot, effects);
+            }
+            if (e.poisonTimer <= 0.0f) e.poisonStacks = 0;
+        }
+    }
+
     firedThisFrame = false;
     fireTimer += dt;
     if (fireTimer >= fireInterval)
@@ -137,6 +167,14 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
                 DamageEnemy(e, p.damage, orbs, loot, effects);
                 // Отбрасывание от попадания (Шаг 30): толкаем врага прочь от игрока.
                 e.ApplyKnockback({ e.position.x - playerPos.x, e.position.y - playerPos.y }, Tuning::kKnockbackForce);
+                // Шанс наложить статус-эффект при попадании (Шаг 31): не более одного из трёх.
+                int sroll = GetRandomValue(0, 99);
+                if (sroll < Tuning::kBurnChance)
+                    e.ApplyStatus(STATUS_BURN);
+                else if (sroll < Tuning::kBurnChance + Tuning::kFreezeChance)
+                    e.ApplyStatus(STATUS_FREEZE);
+                else if (sroll < Tuning::kBurnChance + Tuning::kFreezeChance + Tuning::kPoisonStatusChance)
+                    e.ApplyStatus(STATUS_POISON);
                 if (p.pierce > 0) p.pierce--;
                 else p.active = false;
                 if (!p.active) break;
