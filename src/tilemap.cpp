@@ -16,7 +16,7 @@ TileMap::TileMap()
     Generate(Tuning::MapWidthTiles(), Tuning::MapHeightTiles(), 20240609u);
 }
 
-// Загружает текстуры тайлсета (Шаг 10). Если файла нет — хендл остаётся нулевым
+// Загружает текстуры тайлсета. Если файла нет — хендл остаётся нулевым
 // и тайл рисуется цветным прямоугольником (поведение v0.1).
 void TileMap::LoadArt(TextureManager& tex)
 {
@@ -30,13 +30,15 @@ void TileMap::LoadArt(TextureManager& tex)
     hasArt = (texFloor.id != 0 || texWall.id != 0);
 }
 
-// Процедурная генерация ОТКРЫТОГО поля (v0.4, Фаза 2, Шаг 7).
+// Процедурная генерация ОТКРЫТОГО поля (v0.4, Фаза 2, Шаг 7-8).
 // В отличие от прежних «комнат с коридорами», поле стартует полностью
 // проходимым ('.'), а стены добавляются РЕДКИМИ небольшими скоплениями.
 // Так получается простор как в Vampire Survivors: минимум стен, широкие
 // проходы, без узких коридоров и тупиков. Вся «открытость» крутится
 // параметрами из tuning.h (Шаг 6): kWallDensity, kMinCorridorWidth,
 // kBorderWallThickness, kObstacleClusterMin/Max, kOpenZoneRadius.
+// Поверх пола (Шаг 8) раскидываются разрозненные декоративные пропы
+// (камни/колонны/обломки/кусты) с частотой kDecorDensity — чистый визуал.
 void TileMap::Generate(int width, int height, unsigned int seed)
 {
     worldSeed = seed;  // запоминаем seed для детерминированных вариаций тайлов
@@ -121,18 +123,26 @@ void TileMap::Generate(int width, int height, unsigned int seed)
     // Центр (точка старта) тоже считаем ориентиром.
     rooms.push_back({ (float)spawnCol, (float)spawnRow });
 
-    // Декор на полу: частота из конфига (kDecorDensity). Декор НЕ блокирует движение.
+    // 4) Декоративные пропы-препятствия (Шаг 8): камни, колонны, обломки, кусты.
+    //    Раскиданы РЕДКО по открытому полю с частотой kDecorDensity. Это чистый
+    //    визуал — коллизий у них НЕТ (CheckCollision реагирует только на 'W'),
+    //    поэтому они оживляют простор, но нигде не зажимают движение.
     int decorPct = (int)(Tuning::kDecorDensity * 100.0f);
     if (decorPct < 0) decorPct = 0;
     std::uniform_int_distribution<int> decorRoll(0, 99);
-    std::uniform_int_distribution<int> decorType(0, 2);
+    std::uniform_int_distribution<int> decorType(0, 3);
     for (int y = 1; y < height - 1; y++)
         for (int x = 1; x < width - 1; x++)
-            if (grid[y][x] == '.' && decorRoll(rng) < decorPct)
+        {
+            if (grid[y][x] != '.') continue;
+            // Саму точку старта оставляем чистой.
+            if (x == spawnCol && y == spawnRow) continue;
+            if (decorRoll(rng) < decorPct)
             {
                 int t = decorType(rng);
-                decor[y][x] = (t == 0) ? 'b' : (t == 1) ? 'p' : 'g';
+                decor[y][x] = (t == 0) ? 'r' : (t == 1) ? 'c' : (t == 2) ? 'd' : 'g';
             }
+        }
 }
 
 bool TileMap::IsWall(int col, int row) const
@@ -172,9 +182,64 @@ static void DrawFallbackTile(int x, int y, int tileSize, bool wall, unsigned int
     DrawRectangleLines(x, y, tileSize, tileSize, Color{ 0, 0, 0, 40 });
 }
 
+// Рисует декоративный проп фолбэк-фигурой (Шаг 8): виден ДАЖЕ без текстур тайлсета.
+// Пропы НЕ блокируют движение — это чисто визуальные ориентиры на открытом поле.
+//   'r' — камень (валун), 'c' — колонна, 'd' — обломки, 'g' — куст травы.
+static void DrawProp(int x, int y, int tileSize, char prop, unsigned int h)
+{
+    if (prop != 'r' && prop != 'c' && prop != 'd' && prop != 'g') return;
+    float ts = (float)tileSize;
+    float cx = x + ts * 0.5f;
+    float cy = y + ts * 0.5f;
+    // Небольшое детерминированное смещение, чтобы пропы не стояли по идеальной сетке.
+    cx += ((int)(h % 7) - 3) * (ts * 0.04f);
+    cy += ((int)((h >> 3) % 7) - 3) * (ts * 0.04f);
+
+    switch (prop)
+    {
+        case 'r': // валун — серый камень с тенью
+        {
+            float r = ts * 0.26f;
+            DrawCircle((int)cx, (int)(cy + r * 0.35f), r * 1.05f, Color{ 0, 0, 0, 45 });
+            DrawCircle((int)cx, (int)cy, r, Color{ 120, 120, 130, 255 });
+            DrawCircle((int)(cx - r * 0.3f), (int)(cy - r * 0.3f), r * 0.4f, Color{ 160, 160, 170, 255 });
+            break;
+        }
+        case 'c': // колонна — светлый столб с основанием и капителью
+        {
+            float w = ts * 0.26f;
+            float hgt = ts * 0.62f;
+            float px = cx - w * 0.5f;
+            float py = cy - hgt * 0.5f;
+            DrawEllipse((int)cx, (int)(py + hgt), w * 0.7f, w * 0.28f, Color{ 0, 0, 0, 45 });
+            DrawRectangle((int)px, (int)py, (int)w, (int)hgt, Color{ 200, 196, 178, 255 });
+            DrawRectangle((int)(px - w * 0.18f), (int)py, (int)(w * 1.36f), (int)(ts * 0.10f), Color{ 214, 210, 192, 255 });
+            DrawRectangle((int)(px - w * 0.18f), (int)(py + hgt - ts * 0.10f), (int)(w * 1.36f), (int)(ts * 0.10f), Color{ 186, 182, 165, 255 });
+            break;
+        }
+        case 'd': // обломки — пара мелких камней
+        {
+            float s = ts * 0.16f;
+            DrawRectangle((int)(cx - s), (int)cy, (int)s, (int)s, Color{ 110, 104, 96, 255 });
+            DrawRectangle((int)(cx + s * 0.3f), (int)(cy - s * 0.6f), (int)(s * 1.1f), (int)(s * 1.1f), Color{ 134, 126, 116, 255 });
+            DrawRectangle((int)(cx - s * 0.2f), (int)(cy + s * 0.7f), (int)(s * 0.8f), (int)(s * 0.8f), Color{ 96, 90, 84, 255 });
+            break;
+        }
+        case 'g': // куст травы — несколько зелёных штрихов
+        {
+            float bw = ts * 0.05f;
+            float bh = ts * 0.30f;
+            DrawRectangle((int)(cx - bw * 2.5f), (int)(cy - bh * 0.2f), (int)bw, (int)bh, Color{ 74, 138, 70, 255 });
+            DrawRectangle((int)(cx - bw * 0.5f), (int)(cy - bh * 0.5f), (int)bw, (int)(bh * 1.2f), Color{ 90, 158, 84, 255 });
+            DrawRectangle((int)(cx + bw * 1.8f), (int)(cy - bh * 0.2f), (int)bw, (int)bh, Color{ 74, 138, 70, 255 });
+            break;
+        }
+    }
+}
+
 void TileMap::Draw(const Camera2D& camera) const
 {
-    // CULLING (Шаг 11): вычисляем видимую область в мировых координатах
+    // CULLING: вычисляем видимую область в мировых координатах
     // и рисуем только тайлы, попавшие в кадр — это даёт большую карту без просадки FPS.
     float halfW = (GetScreenWidth()  * 0.5f) / camera.zoom;
     float halfH = (GetScreenHeight() * 0.5f) / camera.zoom;
@@ -207,7 +272,7 @@ void TileMap::Draw(const Camera2D& camera) const
             Texture2D tex = wall ? texWall : texFloor;
             if (hasArt && tex.id != 0)
             {
-                // Вариативность (Шаг 12): отражаем тайл по флагам хеша,
+                // Вариативность: отражаем тайл по флагам хеша,
                 // чтобы одна текстура не выглядела однообразно.
                 float fw = (float)tex.width;
                 float fh = (float)tex.height;
@@ -220,20 +285,11 @@ void TileMap::Draw(const Camera2D& camera) const
                 DrawFallbackTile(x, y, tileSize, wall, h);
             }
 
-            // Декорации рисуем поверх пола (только если есть текстуры).
-            if (!wall && hasArt)
+            // Декоративные пропы (Шаг 8): рисуем поверх пола, видны и без текстур.
+            // Не блокируют движение — это визуальные ориентиры на открытом поле.
+            if (!wall)
             {
-                char dch = decor[row][col];
-                Texture2D dt = Texture2D{ 0 };
-                if (dch == 'b')      dt = texBones;
-                else if (dch == 'p') dt = texPuddle;
-                else if (dch == 'g') dt = texGrass;
-                if (dt.id != 0)
-                {
-                    Rectangle src = { 0.0f, 0.0f, (float)dt.width, (float)dt.height };
-                    Rectangle dst = { (float)x, (float)y, (float)tileSize, (float)tileSize };
-                    DrawTexturePro(dt, src, dst, { 0.0f, 0.0f }, 0.0f, WHITE);
-                }
+                DrawProp(x, y, tileSize, decor[row][col], h);
             }
         }
     }
