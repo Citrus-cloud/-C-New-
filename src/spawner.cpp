@@ -275,6 +275,13 @@ Enemy* Spawner::GetInactive()
     return nullptr;
 }
 
+// Спавн волны врагов (v0.4 Фаза 3, Шаг 13: распределение по большому полю).
+// Базово враги появляются кольцом вокруг игрока, но теперь с разбросом по радиусу
+// (kWaveRingJitter) и углу (kWaveAngleJitter) — волна перестаёт быть идеальным
+// кольцом. С вероятностью kFarSpawnChance отдельный враг вместо кольца появляется
+// у ДАЛЬНЕЙ зоны интереса (POI из map.rooms), удалённой минимум на kFarSpawnMinDist.
+// Так угроза распределяется по всему большому полю, а ориентиры становятся живыми
+// точками притяжения — у игрока появляется стимул двигаться, а не стоять на месте.
 void Spawner::SpawnWave(Vector2 center, const TileMap& map)
 {
     // Размер волны берём из конфига (растёт со временем до потолка).
@@ -283,10 +290,40 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
     {
         Enemy* e = GetInactive();
         if (!e) break;
-        float angle = (float)i / count * 2.0f * PI;
-        float r = Tuning::kWaveSpawnRadius;   // радиус кольца появления — из конфига (за краем обзора, Шаг 4)
-        Vector2 pos = { center.x + cosf(angle) * r, center.y + sinf(angle) * r };
-        pos = map.FindFreeSpot(pos, 16.0f);
+
+        // --- Выбор позиции появления (Шаг 13) ---
+        Vector2 pos;
+        bool placed = false;
+
+        // Дальний спавн у зоны интереса: тянет волну к ориентирам на большом поле.
+        if (GetRandomValue(0, 99) < Tuning::kFarSpawnChance && !map.rooms.empty())
+        {
+            for (int tries = 0; tries < 6 && !placed; tries++)
+            {
+                const Vector2& room = map.rooms[GetRandomValue(0, (int)map.rooms.size() - 1)];
+                Vector2 wp = { room.x * map.tileSize + map.tileSize * 0.5f,
+                               room.y * map.tileSize + map.tileSize * 0.5f };
+                float dx = wp.x - center.x, dy = wp.y - center.y;
+                if (dx * dx + dy * dy < Tuning::kFarSpawnMinDist * Tuning::kFarSpawnMinDist) continue;
+                Vector2 cand = { wp.x + (float)GetRandomValue(-80, 80),
+                                 wp.y + (float)GetRandomValue(-80, 80) };
+                pos = map.FindFreeSpot(cand, 16.0f);
+                placed = true;
+            }
+        }
+
+        // База: кольцо вокруг игрока с разбросом по радиусу и углу.
+        if (!placed)
+        {
+            float baseAngle = (float)i / count * 2.0f * PI;
+            float angle = baseAngle
+                        + (float)GetRandomValue(-1000, 1000) / 1000.0f * Tuning::kWaveAngleJitter;
+            float r = Tuning::kWaveSpawnRadius
+                    + (float)GetRandomValue(-1000, 1000) / 1000.0f * Tuning::kWaveRingJitter;
+            if (r < 100.0f) r = 100.0f;   // не даём кольцу схлопнуться на игрока
+            Vector2 cand = { center.x + cosf(angle) * r, center.y + sinf(angle) * r };
+            pos = map.FindFreeSpot(cand, 16.0f);
+        }
 
         // Состав волны тоже из конфига: танки после kTankUnlockTime, шансы — kTankChance/kFastChance.
         EnemyType t = ENEMY_GRUNT;
