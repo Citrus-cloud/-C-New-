@@ -30,7 +30,7 @@ int main()
     const int screenWidth = 1280;
     const int screenHeight = 720;
 
-    InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition v0.2");
+    InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition v0.3");
     SetTargetFPS(60);
 
     AudioManager audio;
