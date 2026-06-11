@@ -32,6 +32,15 @@ enum SpecialKind {
     SPEC_HEALER         // лечение союзников (Шаг 28)
 };
 
+// Статусы-эффекты, накладываемые на врага оружием игрока (Фаза 6, Шаг 31).
+// Горение и отравление наносят урон по тикам, заморозка замедляет движение.
+// Длительности/урон/шансы — в tuning.h.
+enum StatusKind {
+    STATUS_BURN = 0,  // горение: урон по тикам (оранжевый)
+    STATUS_FREEZE,    // заморозка: замедление движения (голубой)
+    STATUS_POISON     // отравление: урон по тикам со стаками (зелёный)
+};
+
 class TelegraphSystem;   // форвард: враг «заказывает» зоны (slam, путь рывка)
 class Effects;           // форвард: визуальные эффекты телепорта/приземления
 
@@ -109,11 +118,20 @@ public:
     // --- Отбрасывание (Фаза 6, Шаг 30) ---
     Vector2 knockbackVel;   // текущая скорость отбрасывания (затухает), пикс/сек
 
+    // --- Статусы-эффекты (Фаза 6, Шаг 31) ---
+    float burnTimer;    // остаток времени горения, сек (0 = не горит)
+    float burnTick;     // отсчёт до следующего тика урона горения, сек
+    float poisonTimer;  // остаток времени отравления, сек (0 = не отравлен)
+    float poisonTick;   // отсчёт до следующего тика урона яда, сек
+    int   poisonStacks; // текущее число стаков яда (множит урон тика)
+    float freezeTimer;  // остаток времени заморозки, сек (>0 = замедлен)
+
     Enemy();
     void Spawn(Vector2 pos, EnemyType t);
     void ApplyBoss(const BossDef& def);   // применить статы и механики босса (Шаг 20-22)
     void ApplySpecial(int kind);          // назначить особую способность (Шаг 23-28)
     void ApplyKnockback(Vector2 dir, float force);  // толчок от попадания (Шаг 30)
+    void ApplyStatus(int kind);           // наложить статус-эффект: горение/заморозка/яд (Шаг 31)
     void Update(float deltaTime, Vector2 playerPos, const TileMap& map,
                 TelegraphSystem* telegraphs = nullptr, Effects* effects = nullptr);
     void Draw() const;
