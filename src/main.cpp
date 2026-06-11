@@ -103,7 +103,7 @@ int main()
         spawner = Spawner(200);
         spawner.LoadArt(textures);
         director.Reset();   // сброс времени забега и кулдаунов (Фаза 1)
-        telegraphs.Clear();                 // очистка预упреждающих зон (Фаза 2)
+        telegraphs.Clear();                 // очистка предупреждающих зон (Фаза 2)
         ranged.Clear();                     // очистка снарядов врагов (Фаза 3)
         hazards.Clear();                    // очистка опасных луж (Фаза 5)
         spawner.SetTelegraphs(&telegraphs); // спавнер пересоздан — заново привязываем телеграфы
@@ -415,7 +415,7 @@ int main()
                 hud.DrawGame(player, spawner, weapon, survivalTime);
 
                 // Справочный оверлей (F1, Шаг 35): сводка забега и управление в одной панели.
-                // Латинский текст — читаем даже без кириллического шрифта (до Шага 37).
+                // Кириллический текст — отрисовывается игровым шрифтом (Шаг 37).
                 if (showOverlay)
                 {
                     float ox = screenWidth - 380.0f, oy = 80.0f;
@@ -423,25 +423,25 @@ int main()
                     DrawRectangle((int)ox, (int)oy, (int)ow, (int)oh, Color{ 10, 10, 16, 210 });
                     DrawRectangleLines((int)ox, (int)oy, (int)ow, (int)oh, Color{ 120, 200, 255, 255 });
                     float tx = ox + 18.0f, ty = oy + 14.0f;
-                    hud.Text("INFO  (F1 to close)", tx, ty, 22, Color{ 120, 200, 255, 255 }); ty += 34.0f;
-                    hud.Text(TextFormat("Time:   %.1f s", survivalTime), tx, ty, 18, RAYWHITE); ty += 24.0f;
-                    hud.Text(TextFormat("Level:  %d", (int)player.level), tx, ty, 18, RAYWHITE); ty += 24.0f;
-                    hud.Text(TextFormat("HP:     %d / %d", (int)player.health, (int)player.maxHealth), tx, ty, 18, RAYWHITE); ty += 24.0f;
-                    hud.Text(TextFormat("Weapon: lvl %d  dmg %d  x%d  pierce %d%s",
+                    hud.Text("\u0418\u041d\u0424\u041e  (F1 \u2014 \u0437\u0430\u043a\u0440\u044b\u0442\u044c)", tx, ty, 22, Color{ 120, 200, 255, 255 }); ty += 34.0f;
+                    hud.Text(TextFormat("\u0412\u0440\u0435\u043c\u044f:   %.1f \u0441", survivalTime), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("\u0423\u0440\u043e\u0432\u0435\u043d\u044c: %d", (int)player.level), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("HP:      %d / %d", (int)player.health, (int)player.maxHealth), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("\u041e\u0440\u0443\u0436\u0438\u0435:  \u0443\u0440.%d  \u0443\u0440\u043e\u043d %d  x%d  \u043f\u0440\u043e\u0431\u043e\u0439 %d%s",
                         weapon.level, weapon.damage, weapon.projectileCount, weapon.pierce,
-                        weapon.evolved ? "  [EVO]" : ""), tx, ty, 18, RAYWHITE); ty += 24.0f;
-                    hud.Text(TextFormat("Coins:  %d", save.coins), tx, ty, 18, GOLD); ty += 30.0f;
-                    hud.Text("Controls:", tx, ty, 18, Color{ 120, 200, 255, 255 }); ty += 24.0f;
-                    hud.Text("WASD / Arrows - move", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("Space / Shift - dodge", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("ESC - pause", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F1 - this overlay", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F3 - debug stats", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F8 - live tune", tx, ty, 16, LIGHTGRAY);
+                        weapon.evolved ? "  [\u042d\u0412\u041e]" : ""), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("\u041c\u043e\u043d\u0435\u0442\u044b: %d", save.coins), tx, ty, 18, GOLD); ty += 30.0f;
+                    hud.Text("\u0423\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435:", tx, ty, 18, Color{ 120, 200, 255, 255 }); ty += 24.0f;
+                    hud.Text("WASD / \u0441\u0442\u0440\u0435\u043b\u043a\u0438 \u2014 \u0434\u0432\u0438\u0436\u0435\u043d\u0438\u0435", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("\u041f\u0440\u043e\u0431\u0435\u043b / Shift \u2014 \u0440\u044b\u0432\u043e\u043a", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("ESC \u2014 \u043f\u0430\u0443\u0437\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F1 \u2014 \u044d\u0442\u043e\u0442 \u043e\u0432\u0435\u0440\u043b\u0435\u0439", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F3 \u2014 \u043e\u0442\u043b\u0430\u0434\u043a\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F8 \u2014 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 \u0431\u0430\u043b\u0430\u043d\u0441\u0430", tx, ty, 16, LIGHTGRAY);
                 }
 
                 // Панель живой настройки баланса (F8, Шаг 36): меняем ключевые параметры
-                // прямо в бою и сразу видим эффект. Текст латиницей (до Шага 37).
+                // прямо в бою и сразу видим эффект. Кириллица — игровым шрифтом (Шаг 37).
                 if (showTune)
                 {
                     float px = 16.0f, py = screenHeight - 252.0f;
@@ -449,21 +449,21 @@ int main()
                     DrawRectangle((int)px, (int)py, (int)pw, (int)ph, Color{ 16, 10, 10, 215 });
                     DrawRectangleLines((int)px, (int)py, (int)pw, (int)ph, Color{ 255, 180, 90, 255 });
                     float tx = px + 16.0f, ty = py + 12.0f;
-                    hud.Text("LIVE TUNE (F8)  [ ] adjust  PgUp/Dn select", tx, ty, 16, Color{ 255, 180, 90, 255 }); ty += 30.0f;
-                    hud.Text(TextFormat("%c Weapon damage: %d", tuneRow == 0 ? '>' : ' ', weapon.damage), tx, ty, 18, tuneRow == 0 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c Fire interval: %.2f", tuneRow == 1 ? '>' : ' ', weapon.fireInterval), tx, ty, 18, tuneRow == 1 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c Projectiles:   %d", tuneRow == 2 ? '>' : ' ', weapon.projectileCount), tx, ty, 18, tuneRow == 2 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c Pierce:        %d", tuneRow == 3 ? '>' : ' ', weapon.pierce), tx, ty, 18, tuneRow == 3 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c Move speed:    %.0f", tuneRow == 4 ? '>' : ' ', player.speed), tx, ty, 18, tuneRow == 4 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c Max HP:        %.0f", tuneRow == 5 ? '>' : ' ', player.maxHealth), tx, ty, 18, tuneRow == 5 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text("\u041d\u0410\u0421\u0422\u0420\u041e\u0419\u041a\u0410 (F8)   [ ] \u2014 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c   PgUp/Dn \u2014 \u0441\u0442\u0440\u043e\u043a\u0430", tx, ty, 16, Color{ 255, 180, 90, 255 }); ty += 30.0f;
+                    hud.Text(TextFormat("%c \u0423\u0440\u043e\u043d \u043e\u0440\u0443\u0436\u0438\u044f:  %d", tuneRow == 0 ? '>' : ' ', weapon.damage), tx, ty, 18, tuneRow == 0 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b \u043e\u0433\u043d\u044f: %.2f", tuneRow == 1 ? '>' : ' ', weapon.fireInterval), tx, ty, 18, tuneRow == 1 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u0421\u043d\u0430\u0440\u044f\u0434\u043e\u0432:     %d", tuneRow == 2 ? '>' : ' ', weapon.projectileCount), tx, ty, 18, tuneRow == 2 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u041f\u0440\u043e\u0431\u043e\u0439:       %d", tuneRow == 3 ? '>' : ' ', weapon.pierce), tx, ty, 18, tuneRow == 3 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c:     %.0f", tuneRow == 4 ? '>' : ' ', player.speed), tx, ty, 18, tuneRow == 4 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u041c\u0430\u043a\u0441. HP:     %.0f", tuneRow == 5 ? '>' : ' ', player.maxHealth), tx, ty, 18, tuneRow == 5 ? GOLD : RAYWHITE); ty += 26.0f;
                 }
 
                 // Отладочный оверлей (F3): текущие правила конфига и статус приёмов (Шаг 5).
-                // Латинские имена — читаемы даже без кириллического шрифта.
+                // Статусы кириллицей (Шаг 37); имена приёмов — внутренние, латиницей.
                 if (showDebug)
                 {
                     float dx = 16.0f, dy = 90.0f;
-                    hud.Text(TextFormat("DEBUG F3  t=%.1f  wave=%d  spawn=%.2f  TG=%d  PROJ=%d",
+                    hud.Text(TextFormat("\u041e\u0422\u041b\u0410\u0414\u041a\u0410 F3  t=%.1f  \u0432\u043e\u043b\u043d\u0430=%d  \u0441\u043f\u0430\u0432\u043d=%.2f  TG=%d  PROJ=%d",
                         director.elapsed, director.WaveCount(), director.SpawnInterval(),
                         telegraphs.ActiveCount(), ranged.ActiveCount()), dx, dy, 18, LIME);
                     dy += 26.0f;
@@ -473,9 +473,9 @@ int main()
                         const Tuning::AbilityRule& r = Tuning::GetRule(id);
                         const char* status;
                         Color col;
-                        if (!director.IsUnlocked(id)) { status = TextFormat("LOCKED unlock=%.0fs", r.unlockTime); col = GRAY; }
-                        else if (director.CanUse(id)) { status = "READY"; col = LIME; }
-                        else { status = TextFormat("CD %.1fs", director.CooldownLeft(id)); col = ORANGE; }
+                        if (!director.IsUnlocked(id)) { status = TextFormat("\u0417\u0410\u041a\u0420\u042b\u0422 \u043e\u0442\u043a\u0440=%.0f\u0441", r.unlockTime); col = GRAY; }
+                        else if (director.CanUse(id)) { status = "\u0413\u041e\u0422\u041e\u0412"; col = LIME; }
+                        else { status = TextFormat("\u041a\u0414 %.1f\u0441", director.CooldownLeft(id)); col = ORANGE; }
                         hud.Text(TextFormat("%-9s %s", r.name, status), dx, dy, 16, col);
                         dy += 19.0f;
                     }
