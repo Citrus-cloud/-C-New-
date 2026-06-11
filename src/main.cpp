@@ -82,6 +82,8 @@ int main()
     bool newRecord = false;
     bool showDebug = false;     // отладочный показ правил конфига (клавиша F3, Фаза 1)
     bool showOverlay = false;   // справочный оверлей: сводка забега и управление (клавиша F1, Шаг 35)
+    bool showTune = false;      // панель живой настройки баланса (клавиша F8, Шаг 36)
+    int  tuneRow = 0;           // выбранная строка панели настройки баланса (Шаг 36)
 
     GameState state = MENU;
 
@@ -101,7 +103,7 @@ int main()
         spawner = Spawner(200);
         spawner.LoadArt(textures);
         director.Reset();   // сброс времени забега и кулдаунов (Фаза 1)
-        telegraphs.Clear();                 // очистка предупреждающих зон (Фаза 2)
+        telegraphs.Clear();                 // очистка预упреждающих зон (Фаза 2)
         ranged.Clear();                     // очистка снарядов врагов (Фаза 3)
         hazards.Clear();                    // очистка опасных луж (Фаза 5)
         spawner.SetTelegraphs(&telegraphs); // спавнер пересоздан — заново привязываем телеграфы
@@ -222,6 +224,24 @@ int main()
                 spawner.SpawnMobilityTest(player.position, map);
             if (IsKeyPressed(KEY_F7))   // тест: спавн врагов со всеми особыми способностями (Фаза 5)
                 spawner.SpawnSpecialTest(player.position, map);
+            if (IsKeyPressed(KEY_F8)) showTune = !showTune;   // панель живой настройки баланса (Шаг 36)
+            if (showTune)   // [ / ] — изменить значение, PgUp/PgDn — выбрать строку
+            {
+                if (IsKeyPressed(KEY_PAGE_DOWN)) tuneRow = (tuneRow + 1) % 6;
+                if (IsKeyPressed(KEY_PAGE_UP))   tuneRow = (tuneRow + 5) % 6;
+                int tdir = 0;
+                if (IsKeyPressed(KEY_RIGHT_BRACKET)) tdir = 1;
+                if (IsKeyPressed(KEY_LEFT_BRACKET))  tdir = -1;
+                if (tdir != 0)
+                {
+                    if (tuneRow == 0) { weapon.damage += tdir; if (weapon.damage < 1) weapon.damage = 1; }
+                    else if (tuneRow == 1) { weapon.fireInterval += tdir * 0.02f; if (weapon.fireInterval < 0.05f) weapon.fireInterval = 0.05f; }
+                    else if (tuneRow == 2) { weapon.projectileCount += tdir; if (weapon.projectileCount < 1) weapon.projectileCount = 1; }
+                    else if (tuneRow == 3) { weapon.pierce += tdir; if (weapon.pierce < 0) weapon.pierce = 0; }
+                    else if (tuneRow == 4) { player.speed += tdir * 10.0f; if (player.speed < 10.0f) player.speed = 10.0f; }
+                    else if (tuneRow == 5) { player.maxHealth += tdir * 10.0f; if (player.maxHealth < 10.0f) player.maxHealth = 10.0f; if (player.health > player.maxHealth) player.health = player.maxHealth; }
+                }
+            }
             survivalTime += dt;
             director.Update(dt);   // продвигаем время забега (Фаза 1)
             player.Update(dt, map);
@@ -399,7 +419,7 @@ int main()
                 if (showOverlay)
                 {
                     float ox = screenWidth - 380.0f, oy = 80.0f;
-                    float ow = 360.0f, oh = 322.0f;
+                    float ow = 360.0f, oh = 344.0f;
                     DrawRectangle((int)ox, (int)oy, (int)ow, (int)oh, Color{ 10, 10, 16, 210 });
                     DrawRectangleLines((int)ox, (int)oy, (int)ow, (int)oh, Color{ 120, 200, 255, 255 });
                     float tx = ox + 18.0f, ty = oy + 14.0f;
@@ -416,7 +436,26 @@ int main()
                     hud.Text("Space / Shift - dodge", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
                     hud.Text("ESC - pause", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
                     hud.Text("F1 - this overlay", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F3 - debug stats", tx, ty, 16, LIGHTGRAY);
+                    hud.Text("F3 - debug stats", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F8 - live tune", tx, ty, 16, LIGHTGRAY);
+                }
+
+                // Панель живой настройки баланса (F8, Шаг 36): меняем ключевые параметры
+                // прямо в бою и сразу видим эффект. Текст латиницей (до Шага 37).
+                if (showTune)
+                {
+                    float px = 16.0f, py = screenHeight - 252.0f;
+                    float pw = 380.0f, ph = 234.0f;
+                    DrawRectangle((int)px, (int)py, (int)pw, (int)ph, Color{ 16, 10, 10, 215 });
+                    DrawRectangleLines((int)px, (int)py, (int)pw, (int)ph, Color{ 255, 180, 90, 255 });
+                    float tx = px + 16.0f, ty = py + 12.0f;
+                    hud.Text("LIVE TUNE (F8)  [ ] adjust  PgUp/Dn select", tx, ty, 16, Color{ 255, 180, 90, 255 }); ty += 30.0f;
+                    hud.Text(TextFormat("%c Weapon damage: %d", tuneRow == 0 ? '>' : ' ', weapon.damage), tx, ty, 18, tuneRow == 0 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c Fire interval: %.2f", tuneRow == 1 ? '>' : ' ', weapon.fireInterval), tx, ty, 18, tuneRow == 1 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c Projectiles:   %d", tuneRow == 2 ? '>' : ' ', weapon.projectileCount), tx, ty, 18, tuneRow == 2 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c Pierce:        %d", tuneRow == 3 ? '>' : ' ', weapon.pierce), tx, ty, 18, tuneRow == 3 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c Move speed:    %.0f", tuneRow == 4 ? '>' : ' ', player.speed), tx, ty, 18, tuneRow == 4 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c Max HP:        %.0f", tuneRow == 5 ? '>' : ' ', player.maxHealth), tx, ty, 18, tuneRow == 5 ? GOLD : RAYWHITE); ty += 26.0f;
                 }
 
                 // Отладочный оверлей (F3): текущие правила конфига и статус приёмов (Шаг 5).
