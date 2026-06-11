@@ -30,15 +30,16 @@ void TileMap::LoadArt(TextureManager& tex)
     hasArt = (texFloor.id != 0 || texWall.id != 0);
 }
 
-// Процедурная генерация ОТКРЫТОГО поля (v0.4, Фаза 2, Шаг 7-8).
+// Процедурная генерация ОТКРЫТОГО поля (v0.4, Фаза 2, Шаг 7-9).
 // В отличие от прежних «комнат с коридорами», поле стартует полностью
 // проходимым ('.'), а стены добавляются РЕДКИМИ небольшими скоплениями.
 // Так получается простор как в Vampire Survivors: минимум стен, широкие
 // проходы, без узких коридоров и тупиков. Вся «открытость» крутится
 // параметрами из tuning.h (Шаг 6): kWallDensity, kMinCorridorWidth,
 // kBorderWallThickness, kObstacleClusterMin/Max, kOpenZoneRadius.
-// Поверх пола (Шаг 8) раскидываются разрозненные декоративные пропы
-// (камни/колонны/обломки/кусты) с частотой kDecorDensity — чистый визуал.
+// Шаг 9 гарантирует проходимость (flood-fill от старта), а поверх пола
+// (Шаг 8) раскидываются разрозненные декоративные пропы (камни/колонны/
+// обломки/кусты) с частотой kDecorDensity — чистый визуал без коллизий.
 void TileMap::Generate(int width, int height, unsigned int seed)
 {
     worldSeed = seed;  // запоминаем seed для детерминированных вариаций тайлов
@@ -108,6 +109,46 @@ void TileMap::Generate(int width, int height, unsigned int seed)
                     if (grid[y][x] == '.') { grid[y][x] = 'W'; placed++; }
                 }
         }
+    }
+
+    // 2.5) ГАРАНТИЯ ПРОХОДИМОСТИ (Шаг 9): всё свободное поле должно быть одним
+    //      связным регионом, достижимым из точки старта. Запускаем волновой обход
+    //      (BFS/flood-fill) по полу от спавна; если редкие скопления случайно
+    //      отрезали клочок пола, заполняем такой недостижимый «карман» стеной —
+    //      так на карте не остаётся зон-ловушек, куда нельзя дойти. После этого
+    //      навигация врагов (FindPath/HasLineOfSight в pathfinding.cpp) гарантированно
+    //      ведёт от кольца спавна к игроку по любому свободному тайлу.
+    {
+        std::vector<std::vector<unsigned char>> seen(height, std::vector<unsigned char>(width, 0));
+        std::vector<int> stack;
+        stack.reserve((size_t)width * (size_t)height);
+        auto pushCell = [&](int cx, int cy) {
+            seen[cy][cx] = 1;
+            stack.push_back(cy * width + cx);
+        };
+        if (grid[spawnRow][spawnCol] == '.') pushCell(spawnCol, spawnRow);
+        const int ndc[4] = { 1, -1, 0, 0 };
+        const int ndr[4] = { 0, 0, 1, -1 };
+        while (!stack.empty())
+        {
+            int cur = stack.back();
+            stack.pop_back();
+            int cx = cur % width, cy = cur / width;
+            for (int d = 0; d < 4; d++)
+            {
+                int nx = cx + ndc[d], ny = cy + ndr[d];
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                if (seen[ny][nx] || grid[ny][nx] != '.') continue;
+                pushCell(nx, ny);
+            }
+        }
+        // Недостижимые клочки пола делаем стеной. На открытом поле их почти нет,
+        // но так мы строго исключаем зоны, куда нельзя дойти.
+        int sealed = 0;
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+                if (grid[y][x] == '.' && !seen[y][x]) { grid[y][x] = 'W'; sealed++; }
+        (void)sealed;
     }
 
     // 3) Точки интереса (ориентиры для спавна/лута; наполнит Фаза 3).
