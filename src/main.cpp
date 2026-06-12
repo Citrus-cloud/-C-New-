@@ -279,9 +279,40 @@ int main()
                 spawner.SpawnSpecialTest(player.position, map);
             if (IsKeyPressed(KEY_F8)) showTune = !showTune;   // панель живой настройки баланса (Шаг 36)
             if (IsKeyPressed(KEY_F9)) Tuning::ToggleDevPanel();   // чит-панель разработчика (v0.4, Шаг 22)
-            // Ввод чит-панели (v0.4, Шаг 23): цифровые клавиши переключают читы только
-            // при ОТКРЫТОЙ панели, чтобы не мешать обычному управлению. 1 — бессмертие.
-            if (Tuning::IsDevPanelOpen() && IsKeyPressed(KEY_ONE)) Tuning::ToggleGodMode();
+            // Ввод чит-панели (v0.4, Шаги 23-30): клавиши действуют ТОЛЬКО при открытой
+            // панели, чтобы не мешать обычному управлению. Цифры — основные читы,
+            // буквы T/G/U/C — сервис и тоглы. Сами «ручки» и состояния — в tuning.h.
+            if (Tuning::IsDevPanelOpen())
+            {
+                if (IsKeyPressed(KEY_ONE))   Tuning::ToggleGodMode();      // 1 — бессмертие (Шаг 23)
+                if (IsKeyPressed(KEY_TWO))   Tuning::CycleDamageMult();    // 2 — урон x1/x10/x100 (Шаг 24)
+                if (IsKeyPressed(KEY_THREE)) Tuning::CycleXpMult();        // 3 — опыт x1/x10/x100 (Шаг 25)
+                if (IsKeyPressed(KEY_FOUR))  Tuning::CycleSpeedMult();     // 4 — скорость x1/x2/x4 (Шаг 26)
+                if (IsKeyPressed(KEY_FIVE))                                // 5 — выдать уровень (Шаг 27)
+                    for (int i = 0; i < Tuning::kCheatLevelGrant; i++) player.xp += player.xpToNext;
+                if (IsKeyPressed(KEY_SIX))                                 // 6 — убить всех на экране (Шаг 28)
+                    for (auto& e : spawner.enemies)
+                        if (e.active && !e.dying) { e.splitsOnDeath = false; DamageEnemy(e, 1000000, orbs, loot, effects); }
+                if (IsKeyPressed(KEY_SEVEN)) Tuning::ToggleSpawnPaused();  // 7 — пауза спавна (Шаг 28)
+                if (IsKeyPressed(KEY_EIGHT)) spawner.SpawnBoss(player.position, map);   // 8 — заспавнить босса (Шаг 28)
+                if (IsKeyPressed(KEY_NINE))  Tuning::ToggleInvuln();       // 9 — неуязвимость (Шаг 29)
+                if (IsKeyPressed(KEY_ZERO))  Tuning::TogglePassThrough();  // 0 — сквозь врагов (Шаг 29)
+                if (IsKeyPressed(KEY_C))     Tuning::ToggleNoCooldown();   // C — без перезарядки (Шаг 29)
+                if (IsKeyPressed(KEY_T))     player.position = GetScreenToWorld2D(GetMousePosition(), camera);   // T — телепорт к курсору (Шаг 30)
+                if (IsKeyPressed(KEY_G))     // G — выдать опыт и золото пачкой (Шаг 30)
+                {
+                    player.xp += Tuning::kCheatGiveXp;
+                    save.coins += Tuning::kCheatGiveGold;
+                    SaveGameSave(save);
+                }
+                if (IsKeyPressed(KEY_U))     // U — открыть все улучшения (Шаг 30)
+                {
+                    abilities.UnlockOrbit();
+                    abilities.AddOrbit();
+                    abilities.UnlockNova();
+                    weapon.Evolve();
+                }
+            }
             if (showTune)   // [ / ] — изменить значение, PgUp/PgDn — выбрать строку
             {
                 if (IsKeyPressed(KEY_PAGE_DOWN)) tuneRow = (tuneRow + 1) % 6;
@@ -301,7 +332,11 @@ int main()
             }
             survivalTime += dt;
             director.Update(dt);   // продвигаем время забега (Фаза 1)
+            // Чит «множитель скорости» (Шаг 26): временно масштабируем скорость на время апдейта.
+            float cheatSpeedSaved = player.speed;
+            player.speed *= Tuning::CheatSpeedMult();
             player.Update(dt, map);
+            player.speed = cheatSpeedSaved;
             spawner.Update(dt, player, map);
             telegraphs.Update(dt, player, effects);   // продвигаем зоны и наносим урон (Фаза 2)
             ranged.Update(dt, player, effects);       // движение снарядов и урон (Фаза 3)
@@ -320,10 +355,40 @@ int main()
                 audio.PlayBossVoice(subtitleLine);
                 spawner.bossEventLine = -1;
             }
+            // Читы урона/перезарядки (Шаги 24, 29). Множители применяем ВРЕМЕННО вокруг
+            // апдейта систем, затем восстанавливаем исходные значения — чтобы читы не
+            // «накапливались» в постоянных полях оружия/способностей.
+            int   cheatDmgSaved     = weapon.damage;
+            float cheatFireSaved    = weapon.fireInterval;
+            int   cheatOrbitSaved   = abilities.orbitDamage;
+            int   cheatNovaSaved    = abilities.novaDamage;
+            float cheatNovaIntSaved = abilities.novaInterval;
+            int   cheatDmgMult = Tuning::CheatDamageMult();
+            if (cheatDmgMult > 1)
+            {
+                weapon.damage         *= cheatDmgMult;
+                abilities.orbitDamage *= cheatDmgMult;
+                abilities.novaDamage  *= cheatDmgMult;
+            }
+            if (Tuning::IsNoCooldown())
+            {
+                weapon.fireInterval    = 0.03f;
+                abilities.novaInterval = 0.15f;
+            }
             weapon.Update(dt, player.position, spawner, orbs, loot, effects);
             abilities.Update(dt, player.position, spawner, orbs, loot, effects);
+            weapon.damage          = cheatDmgSaved;
+            weapon.fireInterval    = cheatFireSaved;
+            abilities.orbitDamage  = cheatOrbitSaved;
+            abilities.novaDamage   = cheatNovaSaved;
+            abilities.novaInterval = cheatNovaIntSaved;
             if (weapon.firedThisFrame) audio.Shoot();
+            // Чит «множитель опыта» (Шаг 25): добиваем опыт за этот кадр сверх собранного.
+            int cheatXpBefore = player.xp;
             orbs.Update(dt, player);
+            int cheatXpMult = Tuning::CheatXpMult();
+            if (cheatXpMult > 1 && player.xp > cheatXpBefore)
+                player.xp += (player.xp - cheatXpBefore) * (cheatXpMult - 1);
             if (orbs.collectedThisFrame > 0) audio.Pickup();
             loot.Update(dt, player, weapon);
             traps.Update(dt, player);
@@ -483,6 +548,14 @@ int main()
                     hud.Text(dn, screenWidth / 2.0f - hud.TextWidth(dn, 18) / 2.0f, 54.0f, 18, Color{ 255, 210, 120, 255 });
                 }
 
+                // Индикатор активных читов (Шаг 31): виден всегда, когда хоть один чит
+                // включён — чтобы случайно не принять читерский забег за честный баланс.
+                if (Tuning::AnyCheatActive())
+                {
+                    const char* cw = TextFormat("\u0427\u0418\u0422\u042b \u0410\u041a\u0422\u0418\u0412\u041d\u042b: %d", Tuning::ActiveCheatCount());
+                    hud.Text(cw, screenWidth / 2.0f - hud.TextWidth(cw, 20) / 2.0f, 28.0f, 20, Color{ 255, 80, 80, 255 });
+                }
+
                 // Справочный оверлей (F1, Шаг 35): сводка забега и управление в одной панели.
                 // Кириллический текст — отрисовывается игровым шрифтом (Шаг 37).
                 if (showOverlay)
@@ -501,106 +574,4 @@ int main()
                         weapon.evolved ? "  [\u042d\u0412\u041e]" : ""), tx, ty, 18, RAYWHITE); ty += 24.0f;
                     hud.Text(TextFormat("\u041c\u043e\u043d\u0435\u0442\u044b: %d", save.coins), tx, ty, 18, GOLD); ty += 30.0f;
                     hud.Text("\u0423\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435:", tx, ty, 18, Color{ 120, 200, 255, 255 }); ty += 24.0f;
-                    hud.Text("WASD / \u0441\u0442\u0440\u0435\u043b\u043a\u0438 \u2014 \u0434\u0432\u0438\u0436\u0435\u043d\u0438\u0435", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("\u041f\u0440\u043e\u0431\u0435\u043b / Shift \u2014 \u0440\u044b\u0432\u043e\u043a", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("ESC \u2014 \u043f\u0430\u0443\u0437\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F1 \u2014 \u044d\u0442\u043e\u0442 \u043e\u0432\u0435\u0440\u043b\u0435\u0439", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F2 \u2014 \u0441\u043b\u043e\u0436\u043d\u043e\u0441\u0442\u044c (\u0422\u0435\u0441\u0442/\u041d\u043e\u0440\u043c\u0430)", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F3 \u2014 \u043e\u0442\u043b\u0430\u0434\u043a\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F8 \u2014 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 \u0431\u0430\u043b\u0430\u043d\u0441\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F9 \u2014 \u0447\u0438\u0442\u044b \u0440\u0430\u0437\u0440\u0430\u0431\u043e\u0442\u0447\u0438\u043a\u0430", tx, ty, 16, LIGHTGRAY);
-                }
-
-                // Панель живой настройки баланса (F8, Шаг 36): меняем ключевые параметры
-                // прямо в бою и сразу видим эффект. Кириллица — игровым шрифтом (Шаг 37).
-                if (showTune)
-                {
-                    float px = 16.0f, py = screenHeight - 252.0f;
-                    float pw = 380.0f, ph = 234.0f;
-                    DrawRectangle((int)px, (int)py, (int)pw, (int)ph, Color{ 16, 10, 10, 215 });
-                    DrawRectangleLines((int)px, (int)py, (int)pw, (int)ph, Color{ 255, 180, 90, 255 });
-                    float tx = px + 16.0f, ty = py + 12.0f;
-                    hud.Text("\u041d\u0410\u0421\u0422\u0420\u041e\u0419\u041a\u0410 (F8)   [ ] \u2014 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c   PgUp/Dn \u2014 \u0441\u0442\u0440\u043e\u043a\u0430", tx, ty, 16, Color{ 255, 180, 90, 255 }); ty += 30.0f;
-                    hud.Text(TextFormat("%c \u0423\u0440\u043e\u043d \u043e\u0440\u0443\u0436\u0438\u044f:  %d", tuneRow == 0 ? '>' : ' ', weapon.damage), tx, ty, 18, tuneRow == 0 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c \u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b \u043e\u0433\u043d\u044f: %.2f", tuneRow == 1 ? '>' : ' ', weapon.fireInterval), tx, ty, 18, tuneRow == 1 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c \u0421\u043d\u0430\u0440\u044f\u0434\u043e\u0432:     %d", tuneRow == 2 ? '>' : ' ', weapon.projectileCount), tx, ty, 18, tuneRow == 2 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c \u041f\u0440\u043e\u0431\u043e\u0439:       %d", tuneRow == 3 ? '>' : ' ', weapon.pierce), tx, ty, 18, tuneRow == 3 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c \u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c:     %.0f", tuneRow == 4 ? '>' : ' ', player.speed), tx, ty, 18, tuneRow == 4 ? GOLD : RAYWHITE); ty += 26.0f;
-                    hud.Text(TextFormat("%c \u041c\u0430\u043a\u0441. HP:     %.0f", tuneRow == 5 ? '>' : ' ', player.maxHealth), tx, ty, 18, tuneRow == 5 ? GOLD : RAYWHITE); ty += 26.0f;
-                }
-
-                // Чит-панель разработчика (F9, v0.4): отладка баланса. Шаг 22 — каркас;
-                // Шаг 23 — первый реальный чит (бессмертие, тогл по клавише 1). Остальные
-                // читы добавляются в шагах 24-31. Кириллица — игровым шрифтом (Шаг 37).
-                if (Tuning::IsDevPanelOpen())
-                {
-                    const int rows = 2;   // строк-читов в панели (растёт с шагами 23-31)
-                    float px = (float)Tuning::kDevPanelX;
-                    float py = (float)Tuning::kDevPanelY;
-                    float pw = (float)Tuning::kDevPanelWidth;
-                    float ph = (float)(Tuning::kDevPanelPad * 2 + Tuning::kDevPanelTitleSize + 10 + rows * Tuning::kDevPanelRowHeight);
-                    DrawRectangle((int)px, (int)py, (int)pw, (int)ph, Color{ 8, 16, 10, 215 });
-                    DrawRectangleLines((int)px, (int)py, (int)pw, (int)ph, Color{ 120, 255, 150, 255 });
-                    float tx = px + (float)Tuning::kDevPanelPad;
-                    float ty = py + (float)Tuning::kDevPanelPad;
-                    hud.Text("\u0427\u0418\u0422\u042b \u0420\u0410\u0417\u0420\u0410\u0411\u041e\u0422\u0427\u0418\u041a\u0410 (F9 \u2014 \u0437\u0430\u043a\u0440\u044b\u0442\u044c)", tx, ty, (float)Tuning::kDevPanelTitleSize, Color{ 120, 255, 150, 255 });
-                    ty += (float)Tuning::kDevPanelTitleSize + 10.0f;
-                    bool god = Tuning::IsGodMode();   // статус бессмертия (Шаг 23)
-                    hud.Text(TextFormat("1 \u2014 \u0411\u0435\u0441\u0441\u043c\u0435\u0440\u0442\u0438\u0435: %s", god ? "\u0412\u041a\u041b" : "\u0412\u042b\u041a\u041b"),
-                        tx, ty, (float)Tuning::kDevPanelTextSize, god ? Color{ 120, 255, 150, 255 } : LIGHTGRAY);
-                    ty += (float)Tuning::kDevPanelRowHeight;
-                    hud.Text("\u0415\u0449\u0451 \u0447\u0438\u0442\u044b \u2014 \u0448\u0430\u0433\u0438 24-31.", tx, ty, (float)Tuning::kDevPanelTextSize, GRAY);
-                }
-
-                // Отладочный оверлей (F3): текущие правила конфига и статус приёмов (Шаг 5).
-                // Статусы кириллицей (Шаг 37); имена приёмов — внутренние, латиницей.
-                if (showDebug)
-                {
-                    float dx = 16.0f, dy = 90.0f;
-                    hud.Text(TextFormat("\u041e\u0422\u041b\u0410\u0414\u041a\u0410 F3  t=%.1f  \u0432\u043e\u043b\u043d\u0430=%d  \u0441\u043f\u0430\u0432\u043d=%.2f  TG=%d  PROJ=%d",
-                        director.elapsed, director.WaveCount(), director.SpawnInterval(),
-                        telegraphs.ActiveCount(), ranged.ActiveCount()), dx, dy, 18, LIME);
-                    dy += 26.0f;
-                    for (int i = 0; i < Tuning::ABILITY_COUNT; i++)
-                    {
-                        Tuning::AbilityId id = (Tuning::AbilityId)i;
-                        const Tuning::AbilityRule& r = Tuning::GetRule(id);
-                        const char* status;
-                        Color col;
-                        if (!director.IsUnlocked(id)) { status = TextFormat("\u0417\u0410\u041a\u0420\u042b\u0422 \u043e\u0442\u043a\u0440=%.0f\u0441", r.unlockTime); col = GRAY; }
-                        else if (director.CanUse(id)) { status = "\u0413\u041e\u0422\u041e\u0412"; col = LIME; }
-                        else { status = TextFormat("\u041a\u0414 %.1f\u0441", director.CooldownLeft(id)); col = ORANGE; }
-                        hud.Text(TextFormat("%-9s %s", r.name, status), dx, dy, 16, col);
-                        dy += 19.0f;
-                    }
-                }
-
-                if (subtitleTimer > 0.0f && subtitleLine >= 0)
-                {
-                    float alpha = (subtitleTimer < 1.0f) ? subtitleTimer : 1.0f;
-                    const BossDef& bd = GetBossDef(subtitleLine);
-                    hud.DrawSubtitle(bd.name, bd.line, alpha);
-                }
-
-                if (state == LEVEL_UP)
-                    hud.DrawLevelUp(GetUpgradeText(1), GetUpgradeText(2), GetUpgradeText(3));
-                else if (state == PAUSED)
-                    hud.DrawPause();
-                else if (state == GAME_OVER)
-                {
-                    hud.DrawGameOver(survivalTime, player.level, save.bestTime, save.bestLevel, newRecord);
-                    const char* ce = TextFormat("\u0417\u0430\u0440\u0430\u0431\u043e\u0442\u0430\u043d\u043e \u043c\u043e\u043d\u0435\u0442: %d   (\u0432\u0441\u0435\u0433\u043e: %d)", lastEarnedCoins, save.coins);
-                    hud.Text(ce, screenWidth / 2.0f - hud.TextWidth(ce, 22) / 2.0f, 410, 22, GOLD);
-                }
-            }
-
-            DrawFPS(screenWidth - 90, screenHeight - 28);
-        EndDrawing();
-    }
-
-    audio.Unload();
-    hud.Unload();
-    textures.UnloadAll();
-    CloseWindow();
-    return 0;
-}
+                    hud.Text("WASD / \u0441\u0442\u0440\u0435\u043b\u043a\u0438 \u2014 

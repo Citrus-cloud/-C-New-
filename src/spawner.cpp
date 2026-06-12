@@ -406,20 +406,25 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
 {
     elapsed += deltaTime;
 
-    // Темп волн — из конфига (интервал сокращается со временем, см. Tuning).
-    spawnTimer += deltaTime;
-    float curInterval = Tuning::CurrentSpawnInterval(elapsed);
-    if (spawnTimer >= curInterval)
+    // Чит «пауза спавна» (v0.4, Шаг 28): пока включён, новые волны и боссы не
+    // появляются, но уже живые враги продолжают двигаться и действовать.
+    if (!Tuning::IsSpawnPaused())
     {
-        spawnTimer = 0.0f;
-        SpawnWave(player.position, map);
-    }
+        // Темп волн — из конфига (интервал сокращается со временем, см. Tuning).
+        spawnTimer += deltaTime;
+        float curInterval = Tuning::CurrentSpawnInterval(elapsed);
+        if (spawnTimer >= curInterval)
+        {
+            spawnTimer = 0.0f;
+            SpawnWave(player.position, map);
+        }
 
-    bossTimer += deltaTime;
-    if (Tuning::kBossEnabled && bossTimer >= Tuning::kBossInterval)
-    {
-        bossTimer = 0.0f;
-        SpawnBoss(player.position, map);
+        bossTimer += deltaTime;
+        if (Tuning::kBossEnabled && bossTimer >= Tuning::kBossInterval)
+        {
+            bossTimer = 0.0f;
+            SpawnBoss(player.position, map);
+        }
     }
 
     bool bossActive = false;   // есть ли сейчас живой босс
@@ -552,7 +557,9 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
             }
         }
 
-        if (e.active && !e.dying && CheckCollisionRecs(e.GetRect(), player.GetRect()))
+        // Чит «сквозь врагов» (v0.4, Шаг 29): пропускаем контактный урон.
+        if (e.active && !e.dying && !Tuning::IsPassThrough() &&
+            CheckCollisionRecs(e.GetRect(), player.GetRect()))
             player.TakeDamage(e.damage);
     }
 
