@@ -278,6 +278,7 @@ int main()
             if (IsKeyPressed(KEY_F7))   // тест: спавн врагов со всеми особыми способностями (Фаза 5)
                 spawner.SpawnSpecialTest(player.position, map);
             if (IsKeyPressed(KEY_F8)) showTune = !showTune;   // панель живой настройки баланса (Шаг 36)
+            if (IsKeyPressed(KEY_F9)) Tuning::ToggleDevPanel();   // чит-панель разработчика (v0.4, Шаг 22)
             if (showTune)   // [ / ] — изменить значение, PgUp/PgDn — выбрать строку
             {
                 if (IsKeyPressed(KEY_PAGE_DOWN)) tuneRow = (tuneRow + 1) % 6;
@@ -498,7 +499,8 @@ int main()
                     hud.Text("F1 \u2014 \u044d\u0442\u043e\u0442 \u043e\u0432\u0435\u0440\u043b\u0435\u0439", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
                     hud.Text("F2 \u2014 \u0441\u043b\u043e\u0436\u043d\u043e\u0441\u0442\u044c (\u0422\u0435\u0441\u0442/\u041d\u043e\u0440\u043c\u0430)", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
                     hud.Text("F3 \u2014 \u043e\u0442\u043b\u0430\u0434\u043a\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
-                    hud.Text("F8 \u2014 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 \u0431\u0430\u043b\u0430\u043d\u0441\u0430", tx, ty, 16, LIGHTGRAY);
+                    hud.Text("F8 \u2014 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 \u0431\u0430\u043b\u0430\u043d\u0441\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F9 \u2014 \u0447\u0438\u0442\u044b \u0440\u0430\u0437\u0440\u0430\u0431\u043e\u0442\u0447\u0438\u043a\u0430", tx, ty, 16, LIGHTGRAY);
                 }
 
                 // Панель живой настройки баланса (F8, Шаг 36): меняем ключевые параметры
@@ -517,6 +519,27 @@ int main()
                     hud.Text(TextFormat("%c \u041f\u0440\u043e\u0431\u043e\u0439:       %d", tuneRow == 3 ? '>' : ' ', weapon.pierce), tx, ty, 18, tuneRow == 3 ? GOLD : RAYWHITE); ty += 26.0f;
                     hud.Text(TextFormat("%c \u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c:     %.0f", tuneRow == 4 ? '>' : ' ', player.speed), tx, ty, 18, tuneRow == 4 ? GOLD : RAYWHITE); ty += 26.0f;
                     hud.Text(TextFormat("%c \u041c\u0430\u043a\u0441. HP:     %.0f", tuneRow == 5 ? '>' : ' ', player.maxHealth), tx, ty, 18, tuneRow == 5 ? GOLD : RAYWHITE); ty += 26.0f;
+                }
+
+                // Чит-панель разработчика (F9, v0.4 Шаг 22): каркас оверлея для отладки
+                // баланса. Сами читы (бессмертие, множители, спавн-контроль) добавляются
+                // в шагах 23-31. Кириллица — игровым шрифтом (Шаг 37).
+                if (Tuning::IsDevPanelOpen())
+                {
+                    const int rows = 2;   // строк-заглушек в каркасе (Шаг 22)
+                    float px = (float)Tuning::kDevPanelX;
+                    float py = (float)Tuning::kDevPanelY;
+                    float pw = (float)Tuning::kDevPanelWidth;
+                    float ph = (float)(Tuning::kDevPanelPad * 2 + Tuning::kDevPanelTitleSize + 10 + rows * Tuning::kDevPanelRowHeight);
+                    DrawRectangle((int)px, (int)py, (int)pw, (int)ph, Color{ 8, 16, 10, 215 });
+                    DrawRectangleLines((int)px, (int)py, (int)pw, (int)ph, Color{ 120, 255, 150, 255 });
+                    float tx = px + (float)Tuning::kDevPanelPad;
+                    float ty = py + (float)Tuning::kDevPanelPad;
+                    hud.Text("\u0427\u0418\u0422\u042b \u0420\u0410\u0417\u0420\u0410\u0411\u041e\u0422\u0427\u0418\u041a\u0410 (F9 \u2014 \u0437\u0430\u043a\u0440\u044b\u0442\u044c)", tx, ty, (float)Tuning::kDevPanelTitleSize, Color{ 120, 255, 150, 255 });
+                    ty += (float)Tuning::kDevPanelTitleSize + 10.0f;
+                    hud.Text("\u041a\u0430\u0440\u043a\u0430\u0441 \u043f\u0430\u043d\u0435\u043b\u0438 \u0433\u043e\u0442\u043e\u0432.", tx, ty, (float)Tuning::kDevPanelTextSize, RAYWHITE);
+                    ty += (float)Tuning::kDevPanelRowHeight;
+                    hud.Text("\u0427\u0438\u0442\u044b \u0434\u043e\u0431\u0430\u0432\u043b\u044f\u044e\u0442\u0441\u044f \u0434\u0430\u043b\u0435\u0435 (\u0448\u0430\u0433\u0438 23-31).", tx, ty, (float)Tuning::kDevPanelTextSize, LIGHTGRAY);
                 }
 
                 // Отладочный оверлей (F3): текущие правила конфига и статус приёмов (Шаг 5).
