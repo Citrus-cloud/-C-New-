@@ -116,6 +116,58 @@ int main()
         traps = Traps();
         traps.Generate(map, 16, (unsigned)GetRandomValue(1, 1000000));
         loot = LootDrops(200);
+
+        // --- Наполнение большого поля (v0.4 Фаза 3, Шаг 14) ---
+        // Разбрасываем по полю опыт, лут и сундуки, чтобы был стимул двигаться,
+        // а не стоять в одной точке. Всё — только на свободных тайлах.
+        {
+            int cols = map.Cols();
+            int rows = map.Rows();
+            // Случайная свободная мировая точка (до 12 попыток); false — не нашли.
+            auto randWorld = [&](Vector2& out) -> bool {
+                for (int tries = 0; tries < 12; tries++)
+                {
+                    int cx = GetRandomValue(1, cols - 2);
+                    int cy = GetRandomValue(1, rows - 2);
+                    Vector2 w = { cx * (float)map.tileSize + map.tileSize * 0.5f,
+                                  cy * (float)map.tileSize + map.tileSize * 0.5f };
+                    Rectangle r = { w.x - 8.0f, w.y - 8.0f, 16.0f, 16.0f };
+                    if (map.IsFree(r)) { out = w; return true; }
+                }
+                return false;
+            };
+
+            // Сферы опыта по всему полю — стимул двигаться за наградой.
+            for (int i = 0; i < Tuning::kFieldOrbCount; i++)
+            {
+                Vector2 w;
+                if (randWorld(w)) orbs.Spawn(w);
+            }
+            // Лут (хилки и усиления) вперемешку.
+            for (int i = 0; i < Tuning::kFieldLootCount; i++)
+            {
+                Vector2 w;
+                if (randWorld(w))
+                    loot.Spawn(w, (GetRandomValue(0, 1) == 0) ? LOOT_HEALTH : LOOT_POWER);
+            }
+            // Сундуки: сначала у зон интереса (ориентиров), затем добиваем до нужного числа.
+            int chests = 0;
+            for (size_t i = 0; i < map.rooms.size() && chests < Tuning::kFieldChestCount; i++)
+            {
+                Vector2 w = { map.rooms[i].x * (float)map.tileSize + map.tileSize * 0.5f,
+                              map.rooms[i].y * (float)map.tileSize + map.tileSize * 0.5f };
+                Rectangle r = { w.x - 8.0f, w.y - 8.0f, 16.0f, 16.0f };
+                if (map.IsFree(r)) { loot.Spawn(w, LOOT_CHEST); chests++; }
+            }
+            while (chests < Tuning::kFieldChestCount)
+            {
+                Vector2 w;
+                if (!randWorld(w)) break;
+                loot.Spawn(w, LOOT_CHEST);
+                chests++;
+            }
+        }
+
         effects.Clear();
         abilities.Reset();
         ResetUpgrades();
