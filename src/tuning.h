@@ -505,4 +505,40 @@ inline constexpr int kFieldChestCount = 8;   // сколько сундуков-
 inline constexpr int kChestHealAmount = 40;  // сколько HP даёт сундук
 inline constexpr int kChestPowerBonus = 8;   // прибавка к урону оружия от сундука
 
+// ---------------------------------------------------------------------------
+//  ЧИТ-ПАНЕЛЬ РАЗРАБОТЧИКА (v0.4, Фаза 5, Шаг 22-31)
+//  Оверлей по F9 для отладки баланса: бессмертие, множители урона/опыта/скорости,
+//  мгновенный левел-ап, управление спавном и т.д. Это инструмент РАЗРАБОТЧИКА —
+//  в релизной сборке всю панель можно отключить одним флагом kDevPanelAvailable.
+//  Шаг 22 — КАРКАС: мастер-флаг + рантайм-состояние видимости + геометрия/вид
+//  оверлея. Сами читы и их переключатели добавляются в шагах 23-31, каждый со
+//  своей «ручкой» здесь же.
+// ---------------------------------------------------------------------------
+
+// Мастер-выключатель чит-панели (для релиза). true = F9 открывает панель;
+// false = панель и все читы полностью недоступны (как будто их нет).
+inline constexpr bool kDevPanelAvailable = true;
+
+// Видна ли панель сейчас — РАНТАЙМ-состояние, переключается по F9 (см. ToggleDevPanel).
+// Изменяемая inline-переменная (одна на все единицы трансляции, C++17). Вручную не трогать.
+inline bool gDevPanelOpen = false;
+
+// -- Геометрия и вид оверлея панели (Шаг 22). Всё в пикселях экрана. --
+inline constexpr int kDevPanelX         = 40;  // левый край панели, пикс
+inline constexpr int kDevPanelY         = 90;  // верхний край панели, пикс
+inline constexpr int kDevPanelWidth     = 380; // ширина панели, пикс
+inline constexpr int kDevPanelPad       = 16;  // внутренний отступ панели, пикс
+inline constexpr int kDevPanelRowHeight = 26;  // высота одной строки меню, пикс
+inline constexpr int kDevPanelTitleSize = 24;  // кегль заголовка панели, пикс
+inline constexpr int kDevPanelTextSize  = 18;  // кегль строк меню, пикс
+
+// Переключить видимость чит-панели (Шаг 22): вызывается по F9 из main.cpp.
+// При выключенном мастер-флаге не делает ничего.
+inline void ToggleDevPanel() {
+    if (kDevPanelAvailable) gDevPanelOpen = !gDevPanelOpen;
+}
+
+// Открыта ли панель сейчас (с учётом мастер-выключателя) — для отрисовки и ввода.
+inline bool IsDevPanelOpen() { return kDevPanelAvailable && gDevPanelOpen; }
+
 } // namespace Tuning
