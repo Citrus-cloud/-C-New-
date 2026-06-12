@@ -265,6 +265,7 @@ int main()
         else if (state == PLAYING)
         {
             if (IsKeyPressed(KEY_F1)) showOverlay = !showOverlay;   // справочный оверлей (Шаг 35)
+            if (IsKeyPressed(KEY_F2)) Tuning::CycleDifficulty();   // переключить профиль сложности Тест/Норма (v0.4, Шаг 20)
             if (IsKeyPressed(KEY_F3)) showDebug = !showDebug;   // отладка: показать правила конфига
             if (IsKeyPressed(KEY_F4))   // тест: вручную заказать круговую зону под игроком (Фаза 2)
                 telegraphs.SpawnCircle(player.position, 120.0f, 15, Tuning::kTelegraphDefaultFill, ORANGE);
@@ -466,6 +467,13 @@ int main()
 
                 hud.DrawGame(player, spawner, weapon, survivalTime);
 
+                // Индикатор активного профиля сложности (v0.4, Шаг 20): виден в бою под
+                // таймером, переключается по F2. Имя профиля — кириллица, игровым шрифтом.
+                {
+                    const char* dn = TextFormat("\u0421\u043b\u043e\u0436\u043d\u043e\u0441\u0442\u044c: %s  (F2)", Tuning::DifficultyName());
+                    hud.Text(dn, screenWidth / 2.0f - hud.TextWidth(dn, 18) / 2.0f, 54.0f, 18, Color{ 255, 210, 120, 255 });
+                }
+
                 // Справочный оверлей (F1, Шаг 35): сводка забега и управление в одной панели.
                 // Кириллический текст — отрисовывается игровым шрифтом (Шаг 37).
                 if (showOverlay)
@@ -488,6 +496,7 @@ int main()
                     hud.Text("\u041f\u0440\u043e\u0431\u0435\u043b / Shift \u2014 \u0440\u044b\u0432\u043e\u043a", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
                     hud.Text("ESC \u2014 \u043f\u0430\u0443\u0437\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
                     hud.Text("F1 \u2014 \u044d\u0442\u043e\u0442 \u043e\u0432\u0435\u0440\u043b\u0435\u0439", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F2 \u2014 \u0441\u043b\u043e\u0436\u043d\u043e\u0441\u0442\u044c (\u0422\u0435\u0441\u0442/\u041d\u043e\u0440\u043c\u0430)", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
                     hud.Text("F3 \u2014 \u043e\u0442\u043b\u0430\u0434\u043a\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
                     hud.Text("F8 \u2014 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 \u0431\u0430\u043b\u0430\u043d\u0441\u0430", tx, ty, 16, LIGHTGRAY);
                 }
