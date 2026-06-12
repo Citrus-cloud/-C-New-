@@ -541,4 +541,17 @@ inline void ToggleDevPanel() {
 // Открыта ли панель сейчас (с учётом мастер-выключателя) — для отрисовки и ввода.
 inline bool IsDevPanelOpen() { return kDevPanelAvailable && gDevPanelOpen; }
 
+// -- Чит: бессмертие / god mode (Шаг 23). Пока чит включён, HP игрока не падает
+//    (восстанавливается каждый кадр в main.cpp). Переключается цифрой 1 при
+//    открытой панели. Рантайм-флаг, по умолчанию выключен. --
+inline bool gCheatGodMode = false;
+
+// Переключить бессмертие (Шаг 23): только при доступной чит-панели.
+inline void ToggleGodMode() {
+    if (kDevPanelAvailable) gCheatGodMode = !gCheatGodMode;
+}
+
+// Включено ли бессмертие сейчас (с учётом мастер-выключателя) — для боевой логики.
+inline bool IsGodMode() { return kDevPanelAvailable && gCheatGodMode; }
+
 } // namespace Tuning
