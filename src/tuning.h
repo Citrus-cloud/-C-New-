@@ -42,9 +42,9 @@ inline constexpr float kCameraZoom = 0.8f; // базовый зум камеры
 //  СЛОЖНОСТЬ / ПРОФИЛИ БАЛАНСА (v0.4, Фаза 4, Шаг 16, 20)
 //  Глобальные множители сложности, собранные в переключаемые ПРОФИЛИ. Идея:
 //  быстрый тест («Тест», мягче ~50%) и честная игра («Норма») сосуществуют и
-//  меняются одним полем kDifficultyProfile — без правок логики. Множители
-//  применяются в HP/уроне врагов, темпе спавна и требуемом опыте (Шаги 17-19);
-//  здесь они только ОБЪЯВЛЕНЫ. По умолчанию для разработки включён «Тест».
+//  меняются профилем в рантайме (Шаг 20) — без правок логики. Множители
+//  применяются в HP/уроне врагов, темпе спавна и требуемом опыте (Шаги 17-19).
+//  По умолчанию для разработки включён «Тест».
 //
 //  Значение >1 усложняет, <1 смягчает. «Норма» = строго 1.0 (эталонный баланс).
 // ---------------------------------------------------------------------------
@@ -71,11 +71,26 @@ inline const DifficultyMods kDifficultyProfiles[DIFFICULTY_COUNT] = {
     /* DIFF_NORMAL */ { "\u041d\u043e\u0440\u043c\u0430", 1.0f, 1.0f, 1.0f, 1.0f, 1.0f },
 };
 
-// Активный профиль (значение по умолчанию; в рантайме переключается — Шаг 20).
-inline constexpr DifficultyProfile kDifficultyProfile = DIFF_TEST;
+// Активный профиль. РАНТАЙМ-переключаемый (Шаг 20): хранится в изменяемой inline-
+// переменной (одна на все единицы трансляции, C++17). Стартовое значение —
+// «Тест» для разработки; в бою меняется по F2 через CycleDifficulty().
+inline DifficultyProfile gDifficultyProfile = DIFF_TEST;
 
 // Доступ к множителям активного профиля сложности.
-inline const DifficultyMods& Diff() { return kDifficultyProfiles[kDifficultyProfile]; }
+inline const DifficultyMods& Diff() { return kDifficultyProfiles[gDifficultyProfile]; }
+
+// Имя активного профиля (для UI/индикатора на экране).
+inline const char* DifficultyName() { return kDifficultyProfiles[gDifficultyProfile].name; }
+
+// Переключить профиль сложности по кругу (Шаг 20): Тест -> Норма -> Тест ...
+inline void CycleDifficulty() {
+    gDifficultyProfile = (DifficultyProfile)((gDifficultyProfile + 1) % DIFFICULTY_COUNT);
+}
+
+// Явно установить профиль сложности (с защитой диапазона).
+inline void SetDifficulty(DifficultyProfile p) {
+    if (p >= 0 && p < DIFFICULTY_COUNT) gDifficultyProfile = p;
+}
 
 // ---------------------------------------------------------------------------
 //  СПАВН ВОЛН
@@ -220,16 +235,25 @@ inline bool IsUnlockedAt(AbilityId id, float elapsed) {
     return r.enabled && elapsed >= r.unlockTime;
 }
 
-// Текущий интервал между волнами (с учётом роста сложности).
+// Текущий интервал между волнами (с учётом роста сложности и профиля, Шаг 19).
+// Множитель профиля spawnIntervalMul применяется ПОСЛЕ потолка минимума:
+// >1 = реже волны = легче, <1 = чаще = сложнее. Нижняя страховка — 0.05 сек.
 inline float CurrentSpawnInterval(float elapsed) {
     float v = kSpawnBaseInterval - elapsed * kSpawnRampPerSec;
-    return (v < kSpawnMinInterval) ? kSpawnMinInterval : v;
+    if (v < kSpawnMinInterval) v = kSpawnMinInterval;   // потолок сложности по времени
+    v *= Diff().spawnIntervalMul;                       // Шаг 19: масштаб паузы профилем сложности
+    if (v < 0.05f) v = 0.05f;                           // страховка от слишком частого спавна
+    return v;
 }
 
-// Текущий размер волны (растёт со временем до потолка).
+// Текущий размер волны (растёт со временем до потолка, затем масштаб профилем, Шаг 19).
+// Множитель профиля waveCountMul: <1 = меньше врагов за волну = легче. Минимум — 1 враг.
 inline int CurrentWaveCount(float elapsed) {
     int c = kWaveBaseCount + (int)(elapsed / kWaveCountRampDiv);
-    return (c > kWaveMaxCount) ? kWaveMaxCount : c;
+    if (c > kWaveMaxCount) c = kWaveMaxCount;            // потолок размера волны по времени
+    c = (int)(c * Diff().waveCountMul);                 // Шаг 19: масштаб размера волны профилем сложности
+    if (c < 1) c = 1;                                   // минимум один враг в волне
+    return c;
 }
 
 // ---------------------------------------------------------------------------
