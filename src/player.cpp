@@ -57,6 +57,8 @@ bool Player::TryLevelUp()
 
 void Player::TakeDamage(int dmg)
 {
+    // Чит: неуязвимость (v0.4, Шаг 29) — пока чит включён, урон не проходит вовсе.
+    if (Tuning::IsInvulnerable()) return;
     // Урон не проходит во время i-frames от удара или от рывка-уворота (Шаг 29).
     if (hitCooldown > 0.0f || dodgeIFrameTimer > 0.0f) return;
     health -= dmg;

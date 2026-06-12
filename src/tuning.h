@@ -526,7 +526,7 @@ inline bool gDevPanelOpen = false;
 // -- Геометрия и вид оверлея панели (Шаг 22). Всё в пикселях экрана. --
 inline constexpr int kDevPanelX         = 40;  // левый край панели, пикс
 inline constexpr int kDevPanelY         = 90;  // верхний край панели, пикс
-inline constexpr int kDevPanelWidth     = 380; // ширина панели, пикс
+inline constexpr int kDevPanelWidth     = 470; // ширина панели, пикс (расширена под полный список читов, Шаг 24-31)
 inline constexpr int kDevPanelPad       = 16;  // внутренний отступ панели, пикс
 inline constexpr int kDevPanelRowHeight = 26;  // высота одной строки меню, пикс
 inline constexpr int kDevPanelTitleSize = 24;  // кегль заголовка панели, пикс
@@ -553,5 +553,79 @@ inline void ToggleGodMode() {
 
 // Включено ли бессмертие сейчас (с учётом мастер-выключателя) — для боевой логики.
 inline bool IsGodMode() { return kDevPanelAvailable && gCheatGodMode; }
+
+// ---------------------------------------------------------------------------
+//  ЧИТЫ РАЗРАБОТЧИКА (v0.4, Фаза 5, Шаги 24-31)
+//  Каждый чит — отдельная «ручка»: множители (циклируются), тоглы (вкл/выкл) и
+//  разовые действия (выполняются в main.cpp по нажатию). Все читы доступны только
+//  при kDevPanelAvailable; геттеры в релизной сборке возвращают нейтральные
+//  значения (x1 / false), как будто читов нет. Ввод и применение — в main.cpp
+//  при ОТКРЫТОЙ панели (цифровые и буквенные клавиши).
+// ---------------------------------------------------------------------------
+
+// -- Шаг 24: множитель урона игрока. Циклируется x1 -> x10 -> x100 (клавиша 2). --
+inline int gCheatDmgIndex = 0;
+inline constexpr int kCheatDmgMults[3] = { 1, 10, 100 };
+inline int CheatDamageMult() { return kDevPanelAvailable ? kCheatDmgMults[gCheatDmgIndex] : 1; }
+inline void CycleDamageMult() { if (kDevPanelAvailable) gCheatDmgIndex = (gCheatDmgIndex + 1) % 3; }
+
+// -- Шаг 25: множитель опыта. Циклируется x1 -> x10 -> x100 (клавиша 3). --
+inline int gCheatXpIndex = 0;
+inline constexpr int kCheatXpMults[3] = { 1, 10, 100 };
+inline int CheatXpMult() { return kDevPanelAvailable ? kCheatXpMults[gCheatXpIndex] : 1; }
+inline void CycleXpMult() { if (kDevPanelAvailable) gCheatXpIndex = (gCheatXpIndex + 1) % 3; }
+
+// -- Шаг 26: множитель скорости передвижения. Циклируется x1 -> x2 -> x4 (клавиша 4). --
+inline int gCheatSpeedIndex = 0;
+inline constexpr float kCheatSpeedMults[3] = { 1.0f, 2.0f, 4.0f };
+inline float CheatSpeedMult() { return kDevPanelAvailable ? kCheatSpeedMults[gCheatSpeedIndex] : 1.0f; }
+inline void CycleSpeedMult() { if (kDevPanelAvailable) gCheatSpeedIndex = (gCheatSpeedIndex + 1) % 3; }
+
+// -- Шаг 27: мгновенный левел-ап (клавиша 5). Сколько уровней выдаётся за нажатие. --
+inline constexpr int kCheatLevelGrant = 1;
+
+// -- Шаг 28: спавн-контроль. Убить всех (клавиша 6) и заспавнить босса (клавиша 8) —
+//    разовые действия в main.cpp. Пауза спавна (клавиша 7) — тогл, читается спавнером. --
+inline bool gCheatSpawnPaused = false;
+inline bool IsSpawnPaused() { return kDevPanelAvailable && gCheatSpawnPaused; }
+inline void ToggleSpawnPaused() { if (kDevPanelAvailable) gCheatSpawnPaused = !gCheatSpawnPaused; }
+
+// -- Шаг 29: тоглы боевых поблажек. --
+// Неуязвимость (клавиша 9): урон игроку не проходит вовсе (см. Player::TakeDamage).
+inline bool gCheatInvuln = false;
+inline bool IsInvulnerable() { return kDevPanelAvailable && gCheatInvuln; }
+inline void ToggleInvuln() { if (kDevPanelAvailable) gCheatInvuln = !gCheatInvuln; }
+
+// Проход сквозь врагов (клавиша 0): нет контактного урона от врагов (см. Spawner::Update).
+inline bool gCheatPassThrough = false;
+inline bool IsPassThrough() { return kDevPanelAvailable && gCheatPassThrough; }
+inline void TogglePassThrough() { if (kDevPanelAvailable) gCheatPassThrough = !gCheatPassThrough; }
+
+// Без перезарядки (клавиша C): оружие и нова бьют почти без пауз (применяется в main.cpp).
+inline bool gCheatNoCooldown = false;
+inline bool IsNoCooldown() { return kDevPanelAvailable && gCheatNoCooldown; }
+inline void ToggleNoCooldown() { if (kDevPanelAvailable) gCheatNoCooldown = !gCheatNoCooldown; }
+
+// -- Шаг 30: сервисные читы (разовые действия в main.cpp). --
+inline constexpr int kCheatGiveXp   = 500; // сколько опыта выдать пачкой (клавиша G)
+inline constexpr int kCheatGiveGold = 500; // сколько золота выдать пачкой (клавиша G)
+// Телепорт к курсору — клавиша T; открыть все улучшения — клавиша U.
+
+// -- Шаг 31: сколько читов сейчас активно (для индикатора на экране). --
+// Считаем включённые тоглы и поднятые множители (god mode объявлен выше).
+inline int ActiveCheatCount() {
+    if (!kDevPanelAvailable) return 0;
+    int n = 0;
+    if (gCheatGodMode)     n++;
+    if (gCheatInvuln)      n++;
+    if (gCheatPassThrough) n++;
+    if (gCheatNoCooldown)  n++;
+    if (gCheatSpawnPaused) n++;
+    if (gCheatDmgIndex   > 0) n++;
+    if (gCheatXpIndex    > 0) n++;
+    if (gCheatSpeedIndex > 0) n++;
+    return n;
+}
+inline bool AnyCheatActive() { return ActiveCheatCount() > 0; }
 
 } // namespace Tuning
