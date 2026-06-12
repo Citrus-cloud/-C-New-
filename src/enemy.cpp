@@ -114,6 +114,15 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
     }
 
     maxHealth = health;
+
+    // Множители профиля сложности (Фаза 4, Шаг 18): HP и контактный урон врага.
+    // На профиле «Тест» враги слабее и бьют мягче; «Норма» = ×1.0 (без изменений).
+    // Элитные множители (ApplyElite) позже корректно домножатся поверх.
+    health = (int)(health * Tuning::Diff().enemyHealthMul);
+    if (health < 1) health = 1;
+    maxHealth = health;
+    damage = (int)(damage * Tuning::Diff().enemyDamageMul);
+    if (damage < 1) damage = 1;
 }
 
 // Применяет характеристики и механики конкретного босса из таблицы (Шаг 20-22).
@@ -129,6 +138,14 @@ void Enemy::ApplyBoss(const BossDef& def)
     canDash = def.canDash;
     canSummon = def.canSummon;
     summonTimer = def.summonInterval;
+
+    // Профиль сложности (Фаза 4, Шаг 18) масштабирует и боссов.
+    health = (int)(health * Tuning::Diff().enemyHealthMul);
+    if (health < 1) health = 1;
+    maxHealth = health;
+    damage = (int)(damage * Tuning::Diff().enemyDamageMul);
+    if (damage < 1) damage = 1;
+
     // Рывок босса использует тот же механизм, что и MOB_DASH (Фаза 4), но со своим кулдауном.
     if (canDash)
     {
