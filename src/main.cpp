@@ -279,6 +279,9 @@ int main()
                 spawner.SpawnSpecialTest(player.position, map);
             if (IsKeyPressed(KEY_F8)) showTune = !showTune;   // панель живой настройки баланса (Шаг 36)
             if (IsKeyPressed(KEY_F9)) Tuning::ToggleDevPanel();   // чит-панель разработчика (v0.4, Шаг 22)
+            // Ввод чит-панели (v0.4, Шаг 23): цифровые клавиши переключают читы только
+            // при ОТКРЫТОЙ панели, чтобы не мешать обычному управлению. 1 — бессмертие.
+            if (Tuning::IsDevPanelOpen() && IsKeyPressed(KEY_ONE)) Tuning::ToggleGodMode();
             if (showTune)   // [ / ] — изменить значение, PgUp/PgDn — выбрать строку
             {
                 if (IsKeyPressed(KEY_PAGE_DOWN)) tuneRow = (tuneRow + 1) % 6;
@@ -329,6 +332,11 @@ int main()
                               baseCamOffset.y + effects.ShakeOffset().y };
 
             if (subtitleTimer > 0.0f) subtitleTimer -= dt;
+
+            // Чит: бессмертие (v0.4, Шаг 23). Пока god mode включён, держим HP на
+            // максимуме перед проверкой смерти — весь урон уже применён выше, поэтому
+            // игрок не умирает. Сам флаг и его переключатель живут в tuning.h.
+            if (Tuning::IsGodMode()) player.health = player.maxHealth;
 
             if (player.health <= 0)
             {
@@ -521,12 +529,12 @@ int main()
                     hud.Text(TextFormat("%c \u041c\u0430\u043a\u0441. HP:     %.0f", tuneRow == 5 ? '>' : ' ', player.maxHealth), tx, ty, 18, tuneRow == 5 ? GOLD : RAYWHITE); ty += 26.0f;
                 }
 
-                // Чит-панель разработчика (F9, v0.4 Шаг 22): каркас оверлея для отладки
-                // баланса. Сами читы (бессмертие, множители, спавн-контроль) добавляются
-                // в шагах 23-31. Кириллица — игровым шрифтом (Шаг 37).
+                // Чит-панель разработчика (F9, v0.4): отладка баланса. Шаг 22 — каркас;
+                // Шаг 23 — первый реальный чит (бессмертие, тогл по клавише 1). Остальные
+                // читы добавляются в шагах 24-31. Кириллица — игровым шрифтом (Шаг 37).
                 if (Tuning::IsDevPanelOpen())
                 {
-                    const int rows = 2;   // строк-заглушек в каркасе (Шаг 22)
+                    const int rows = 2;   // строк-читов в панели (растёт с шагами 23-31)
                     float px = (float)Tuning::kDevPanelX;
                     float py = (float)Tuning::kDevPanelY;
                     float pw = (float)Tuning::kDevPanelWidth;
@@ -537,9 +545,11 @@ int main()
                     float ty = py + (float)Tuning::kDevPanelPad;
                     hud.Text("\u0427\u0418\u0422\u042b \u0420\u0410\u0417\u0420\u0410\u0411\u041e\u0422\u0427\u0418\u041a\u0410 (F9 \u2014 \u0437\u0430\u043a\u0440\u044b\u0442\u044c)", tx, ty, (float)Tuning::kDevPanelTitleSize, Color{ 120, 255, 150, 255 });
                     ty += (float)Tuning::kDevPanelTitleSize + 10.0f;
-                    hud.Text("\u041a\u0430\u0440\u043a\u0430\u0441 \u043f\u0430\u043d\u0435\u043b\u0438 \u0433\u043e\u0442\u043e\u0432.", tx, ty, (float)Tuning::kDevPanelTextSize, RAYWHITE);
+                    bool god = Tuning::IsGodMode();   // статус бессмертия (Шаг 23)
+                    hud.Text(TextFormat("1 \u2014 \u0411\u0435\u0441\u0441\u043c\u0435\u0440\u0442\u0438\u0435: %s", god ? "\u0412\u041a\u041b" : "\u0412\u042b\u041a\u041b"),
+                        tx, ty, (float)Tuning::kDevPanelTextSize, god ? Color{ 120, 255, 150, 255 } : LIGHTGRAY);
                     ty += (float)Tuning::kDevPanelRowHeight;
-                    hud.Text("\u0427\u0438\u0442\u044b \u0434\u043e\u0431\u0430\u0432\u043b\u044f\u044e\u0442\u0441\u044f \u0434\u0430\u043b\u0435\u0435 (\u0448\u0430\u0433\u0438 23-31).", tx, ty, (float)Tuning::kDevPanelTextSize, LIGHTGRAY);
+                    hud.Text("\u0415\u0449\u0451 \u0447\u0438\u0442\u044b \u2014 \u0448\u0430\u0433\u0438 24-31.", tx, ty, (float)Tuning::kDevPanelTextSize, GRAY);
                 }
 
                 // Отладочный оверлей (F3): текущие правила конфига и статус приёмов (Шаг 5).
