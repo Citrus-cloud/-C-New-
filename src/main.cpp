@@ -29,7 +29,7 @@ int main()
     const int screenWidth = 1280;
     const int screenHeight = 720;
 
-    InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition v0.3");
+    InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition v0.4");
     SetTargetFPS(60);
 
     AudioManager audio;
@@ -82,6 +82,7 @@ int main()
     bool showOverlay = false;
     bool showTune = false;
     int  tuneRow = 0;
+    bool cheatedThisRun = false;
 
     GameState state = MENU;
 
@@ -175,6 +176,16 @@ int main()
         weapon.damage += save.upgDamage * 3;
 
         player.health = player.maxHealth;
+
+        if (Tuning::IsGodMode())      Tuning::ToggleGodMode();
+        if (Tuning::IsInvulnerable()) Tuning::ToggleInvuln();
+        if (Tuning::IsPassThrough())  Tuning::TogglePassThrough();
+        if (Tuning::IsNoCooldown())   Tuning::ToggleNoCooldown();
+        if (Tuning::IsSpawnPaused())  Tuning::ToggleSpawnPaused();
+        while (Tuning::CheatDamageMult() != 1)    Tuning::CycleDamageMult();
+        while (Tuning::CheatXpMult()    != 1)    Tuning::CycleXpMult();
+        while (Tuning::CheatSpeedMult() != 1.0f) Tuning::CycleSpeedMult();
+        cheatedThisRun = false;
 
         survivalTime = 0.0f;
         subtitleTimer = 0.0f;
@@ -289,7 +300,6 @@ int main()
                 {
                     player.xp += Tuning::kCheatGiveXp;
                     save.coins += Tuning::kCheatGiveGold;
-                    SaveGameSave(save);
                 }
                 if (IsKeyPressed(KEY_U))
                 {
@@ -298,6 +308,12 @@ int main()
                     abilities.UnlockNova();
                     weapon.Evolve();
                 }
+                if (IsKeyPressed(KEY_ONE) || IsKeyPressed(KEY_TWO) || IsKeyPressed(KEY_THREE) ||
+                    IsKeyPressed(KEY_FOUR) || IsKeyPressed(KEY_FIVE) || IsKeyPressed(KEY_SIX) ||
+                    IsKeyPressed(KEY_SEVEN) || IsKeyPressed(KEY_EIGHT) || IsKeyPressed(KEY_NINE) ||
+                    IsKeyPressed(KEY_ZERO) || IsKeyPressed(KEY_C) || IsKeyPressed(KEY_T) ||
+                    IsKeyPressed(KEY_G) || IsKeyPressed(KEY_U))
+                    cheatedThisRun = true;
             }
             if (showTune)
             {
@@ -385,12 +401,20 @@ int main()
             {
                 state = GAME_OVER;
                 newRecord = false;
-                int t = (int)survivalTime;
-                if (t > save.bestTime) { save.bestTime = t; newRecord = true; }
-                if (player.level > save.bestLevel) { save.bestLevel = player.level; newRecord = true; }
-                lastEarnedCoins = player.level * 5 + (int)(survivalTime / 5.0f);
-                save.coins += lastEarnedCoins;
-                SaveGameSave(save);
+                if (cheatedThisRun)
+                {
+                    lastEarnedCoins = 0;
+                    save = LoadGameSave();
+                }
+                else
+                {
+                    int t = (int)survivalTime;
+                    if (t > save.bestTime) { save.bestTime = t; newRecord = true; }
+                    if (player.level > save.bestLevel) { save.bestLevel = player.level; newRecord = true; }
+                    lastEarnedCoins = player.level * 5 + (int)(survivalTime / 5.0f);
+                    save.coins += lastEarnedCoins;
+                    SaveGameSave(save);
+                }
                 effects.Shake(14.0f, 0.6f);
                 effects.SetFade(0.65f, 1.5f);
             }
