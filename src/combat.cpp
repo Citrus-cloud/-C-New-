@@ -1,12 +1,20 @@
 #include "combat.h"
 #include "effects.h"
+#include "tuning.h"   // сила отбрасывания и параметры статусов (Фаза 6, Шаг 30-31)
 #include <cmath>
 
 // Общая функция урона по врагу: эффекты + награда при смерти.
-// Используется и оружием, и способностями игрока (Фаза 5).
+// Используется и оружием, и способностями игрока (Фаза 5), и тиками статусов (Шаг 31).
 void DamageEnemy(Enemy& e, int dmg, ExpOrbs& orbs, LootDrops& loot, Effects& effects)
 {
     if (!e.active || e.dying) return;
+
+    // Щит (Шаг 23): пока активен — урон не проходит, только синие искры отрикошета.
+    if (e.shielded)
+    {
+        effects.SpawnSparks(e.position, Color{ 120, 200, 255, 255 }, 4);
+        return;
+    }
 
     e.health -= dmg;
 
@@ -17,6 +25,12 @@ void DamageEnemy(Enemy& e, int dmg, ExpOrbs& orbs, LootDrops& loot, Effects& eff
     if (e.health <= 0)
     {
         e.Kill();
+
+        // Разделение при смерти (Шаг 24): помечаем врага — осколки породит спавнер.
+        if (e.splitsOnDeath) e.wantSplit = true;
+
+        // Взрывной элит (Шаг 32): помечаем — взрыв по площади создаст спавнер.
+        if (e.elite == ELITE_EXPLOSIVE) e.wantExplode = true;
 
         // Эффекты смерти (Шаг 16, 17).
         bool boss = (e.type == ENEMY_BOSS);
@@ -84,6 +98,36 @@ void Weapon::Evolve()
 
 void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs, LootDrops& loot, Effects& effects)
 {
+    // Тики статусов горения и яда (Шаг 31). Урон идёт через DamageEnemy, чтобы
+    // корректно срабатывали награда (XP/лут) и эффекты при смерти от статуса.
+    for (Enemy& e : spawner.enemies)
+    {
+        if (!e.active || e.dying) continue;
+        if (e.burnTimer > 0.0f)
+        {
+            e.burnTimer -= dt;
+            e.burnTick -= dt;
+            if (e.burnTick <= 0.0f)
+            {
+                e.burnTick = Tuning::kBurnTick;
+                effects.SpawnSparks(e.position, Color{ 255, 130, 40, 255 }, 3);
+                DamageEnemy(e, Tuning::kBurnDamage, orbs, loot, effects);
+            }
+        }
+        if (e.active && !e.dying && e.poisonTimer > 0.0f)
+        {
+            e.poisonTimer -= dt;
+            e.poisonTick -= dt;
+            if (e.poisonTick <= 0.0f)
+            {
+                e.poisonTick = Tuning::kPoisonStatusTick;
+                effects.SpawnSparks(e.position, Color{ 120, 230, 90, 255 }, 3);
+                DamageEnemy(e, Tuning::kPoisonStatusDamage * e.poisonStacks, orbs, loot, effects);
+            }
+            if (e.poisonTimer <= 0.0f) e.poisonStacks = 0;
+        }
+    }
+
     firedThisFrame = false;
     fireTimer += dt;
     if (fireTimer >= fireInterval)
@@ -123,7 +167,47 @@ void Weapon::Update(float dt, Vector2 playerPos, Spawner& spawner, ExpOrbs& orbs
             if (!e.active || e.dying) continue;
             if (CheckCollisionRecs(p.GetRect(), e.GetRect()))
             {
-                DamageEnemy(e, p.damage, orbs, loot, effects);
+                // Реакция «Перелом» (Шаг 34): прямое попадание по ЗАМОРОЖЕННОМУ
+                // врагу наносит бонусный урон и раскалывает лёд (заморозка снимается).
+                int hitDamage = p.damage;
+                if (e.freezeTimer > 0.0f)
+                {
+                    hitDamage = (int)(hitDamage * Tuning::kShatterDamageMul);
+                    e.freezeTimer = 0.0f;
+                    effects.SpawnSparks(e.position, Color{ 150, 220, 255, 255 }, 6);
+                }
+                DamageEnemy(e, hitDamage, orbs, loot, effects);
+                // Отбрасывание от попадания (Шаг 30): толкаем врага прочь от игрока.
+                e.ApplyKnockback({ e.position.x - playerPos.x, e.position.y - playerPos.y }, Tuning::kKnockbackForce);
+                // Статус-эффект при попадании (Шаг 31): не более одного из трёх.
+                // Накладываем только если враг пережил это попадание.
+                if (e.active && !e.dying)
+                {
+                    int sroll = GetRandomValue(0, 99);
+                    if (sroll < Tuning::kBurnChance)
+                    {
+                        e.ApplyStatus(STATUS_BURN);
+                    }
+                    else if (sroll < Tuning::kBurnChance + Tuning::kFreezeChance)
+                    {
+                        // Реакция «Пар» (Шаг 34): заморозка по ГОРЯЩЕМУ врагу гасит обе
+                        // стихии и наносит всплеск урона вместо наложения заморозки.
+                        if (e.burnTimer > 0.0f)
+                        {
+                            e.burnTimer = 0.0f;
+                            effects.SpawnSparks(e.position, Color{ 230, 230, 230, 255 }, 8);
+                            DamageEnemy(e, Tuning::kSteamBurstDamage, orbs, loot, effects);
+                        }
+                        else
+                        {
+                            e.ApplyStatus(STATUS_FREEZE);
+                        }
+                    }
+                    else if (sroll < Tuning::kBurnChance + Tuning::kFreezeChance + Tuning::kPoisonStatusChance)
+                    {
+                        e.ApplyStatus(STATUS_POISON);
+                    }
+                }
                 if (p.pierce > 0) p.pierce--;
                 else p.active = false;
                 if (!p.active) break;

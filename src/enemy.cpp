@@ -17,7 +17,14 @@ Enemy::Enemy()
       jumping(false), jumpTimer(0.0f), jumpDuration(Tuning::kJumpDuration),
       jumpStart({ 0.0f, 0.0f }), jumpEnd({ 0.0f, 0.0f }),
       blinkBurstLeft(0), blinkStepTimer(0.0f),
-      flankSide(1), flankSwitchTimer(0.0f), drawYOffset(0.0f)
+      flankSide(1), flankSwitchTimer(0.0f), drawYOffset(0.0f),
+      special(SPEC_NONE), shielded(false), shieldTimer(0.0f), shieldCd(0.0f),
+      splitsOnDeath(false), wantSplit(false), poisonDropTimer(0.0f), healTimer(0.0f),
+      knockbackVel({ 0.0f, 0.0f }),
+      burnTimer(0.0f), burnTick(0.0f), poisonTimer(0.0f), poisonTick(0.0f),
+      poisonStacks(0), freezeTimer(0.0f),
+      elite(ELITE_NONE), wantExplode(false),
+      projectileDodger(false), dodgeReactCd(0.0f)
 {
 }
 
@@ -60,6 +67,35 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
     flankSwitchTimer = Tuning::kFlankSwitch;
     drawYOffset = 0.0f;
 
+    // Сброс особых способностей (Фаза 5) — конкретную назначает спавнер.
+    special = SPEC_NONE;
+    shielded = false;
+    shieldTimer = 0.0f;
+    shieldCd = 0.0f;
+    splitsOnDeath = false;
+    wantSplit = false;
+    poisonDropTimer = 0.0f;
+    healTimer = 0.0f;
+
+    // Сброс отбрасывания (Фаза 6, Шаг 30).
+    knockbackVel = { 0.0f, 0.0f };
+
+    // Сброс статусов-эффектов (Фаза 6, Шаг 31).
+    burnTimer = 0.0f;
+    burnTick = 0.0f;
+    poisonTimer = 0.0f;
+    poisonTick = 0.0f;
+    poisonStacks = 0;
+    freezeTimer = 0.0f;
+
+    // Сброс элитного модификатора (Фаза 6, Шаг 32) — конкретный назначает спавнер.
+    elite = ELITE_NONE;
+    wantExplode = false;
+
+    // Сброс улучшенного ИИ (Фаза 6, Шаг 33) — флаг уклонения назначает спавнер.
+    projectileDodger = false;
+    dodgeReactCd = 0.0f;
+
     switch (t)
     {
         case ENEMY_FAST:
@@ -78,6 +114,15 @@ void Enemy::Spawn(Vector2 pos, EnemyType t)
     }
 
     maxHealth = health;
+
+    // Множители профиля сложности (Фаза 4, Шаг 18): HP и контактный урон врага.
+    // На профиле «Тест» враги слабее и бьют мягче; «Норма» = ×1.0 (без изменений).
+    // Элитные множители (ApplyElite) позже корректно домножатся поверх.
+    health = (int)(health * Tuning::Diff().enemyHealthMul);
+    if (health < 1) health = 1;
+    maxHealth = health;
+    damage = (int)(damage * Tuning::Diff().enemyDamageMul);
+    if (damage < 1) damage = 1;
 }
 
 // Применяет характеристики и механики конкретного босса из таблицы (Шаг 20-22).
@@ -93,12 +138,104 @@ void Enemy::ApplyBoss(const BossDef& def)
     canDash = def.canDash;
     canSummon = def.canSummon;
     summonTimer = def.summonInterval;
+
+    // Профиль сложности (Фаза 4, Шаг 18) масштабирует и боссов.
+    health = (int)(health * Tuning::Diff().enemyHealthMul);
+    if (health < 1) health = 1;
+    maxHealth = health;
+    damage = (int)(damage * Tuning::Diff().enemyDamageMul);
+    if (damage < 1) damage = 1;
+
     // Рывок босса использует тот же механизм, что и MOB_DASH (Фаза 4), но со своим кулдауном.
     if (canDash)
     {
         mobilityCdMax = Tuning::kBossDashCooldown;
         mobilityCd = mobilityCdMax * 0.5f;
     }
+}
+
+// Назначает особую способность врага (Шаг 23-28).
+// Таймеры десинхронизируются, чтобы враги не действовали «в унисон».
+void Enemy::ApplySpecial(int kind)
+{
+    special = kind;
+    splitsOnDeath = (kind == SPEC_SPLIT);
+    shielded = false;
+    shieldTimer = 0.0f;
+    shieldCd = (float)GetRandomValue(0, 100) / 100.0f *
+               Tuning::GetRule(Tuning::ABIL_SHIELD).minInterval;
+    poisonDropTimer = (float)GetRandomValue(0, 100) / 100.0f * Tuning::kPoisonDropInterval;
+    healTimer = (float)GetRandomValue(0, 100) / 100.0f * Tuning::kHealInterval;
+}
+
+// Придаёт врагу импульс отбрасывания от попадания (Шаг 30).
+// Боссы не сдвигаются, танки сдвигаются хуже (kKnockbackTankResist).
+void Enemy::ApplyKnockback(Vector2 dir, float force)
+{
+    if (type == ENEMY_BOSS) return;
+    float len = sqrtf(dir.x * dir.x + dir.y * dir.y);
+    if (len < 0.0001f) return;
+    float resist = (type == ENEMY_TANK) ? Tuning::kKnockbackTankResist : 1.0f;
+    knockbackVel.x += dir.x / len * force * resist;
+    knockbackVel.y += dir.y / len * force * resist;
+}
+
+// Накладывает статус-эффект на врага (Шаг 31). Длительности/сила — из tuning.h.
+// Горение/яд тикают в Weapon::Update (там есть доступ к награде), заморозка — в Update.
+void Enemy::ApplyStatus(int kind)
+{
+    switch (kind)
+    {
+        case STATUS_BURN:
+            if (burnTimer <= 0.0f) burnTick = Tuning::kBurnTick;
+            burnTimer = Tuning::kBurnDuration;
+            break;
+        case STATUS_FREEZE:
+            freezeTimer = Tuning::kFreezeDuration;
+            break;
+        case STATUS_POISON:
+            if (poisonTimer <= 0.0f) poisonTick = Tuning::kPoisonStatusTick;
+            poisonTimer = Tuning::kPoisonStatusDuration;
+            if (poisonStacks < Tuning::kPoisonMaxStacks) poisonStacks++;
+            break;
+        default:
+            break;
+    }
+}
+
+// Назначает элитный модификатор и применяет усиление статов (Шаг 32).
+// Вызывается спавнером ПОСЛЕ Spawn(), поэтому базовые статы уже выставлены —
+// здесь мы их домножаем. Элиты дают больше опыта (kEliteXpMul).
+void Enemy::ApplyElite(int kind)
+{
+    elite = kind;
+    switch (kind)
+    {
+        case ELITE_SWIFT:
+            speed *= Tuning::kEliteSwiftSpeedMul;
+            break;
+        case ELITE_ARMORED:
+            maxHealth = (int)(maxHealth * Tuning::kEliteArmoredHealthMul);
+            health = maxHealth;
+            speed *= Tuning::kEliteArmoredSpeedMul;
+            break;
+        case ELITE_EXPLOSIVE:
+            maxHealth = (int)(maxHealth * Tuning::kEliteExplosiveHealthMul);
+            health = maxHealth;
+            break;
+        case ELITE_GIANT:
+            size *= Tuning::kEliteGiantSizeMul;
+            maxHealth = (int)(maxHealth * Tuning::kEliteGiantHealthMul);
+            health = maxHealth;
+            damage = (int)(damage * Tuning::kEliteGiantDamageMul);
+            speed *= Tuning::kEliteGiantSpeedMul;
+            break;
+        default:
+            elite = ELITE_NONE;
+            return;
+    }
+    xpValue = (int)(xpValue * Tuning::kEliteXpMul);
+    if (xpValue < 1) xpValue = 1;
 }
 
 Rectangle Enemy::GetRect() const
@@ -311,10 +448,58 @@ void Enemy::Update(float deltaTime, Vector2 playerPos, const TileMap& map,
 
     walkAnim.Update(deltaTime);
 
+    // Щит (Шаг 23): периодическая неуязвимость. Сам урон блокируется в DamageEnemy.
+    if (special == SPEC_SHIELD)
+    {
+        if (shielded)
+        {
+            shieldTimer -= deltaTime;
+            if (shieldTimer <= 0.0f)
+            {
+                shielded = false;
+                shieldCd = Tuning::GetRule(Tuning::ABIL_SHIELD).minInterval;
+            }
+        }
+        else
+        {
+            shieldCd -= deltaTime;
+            if (shieldCd <= 0.0f)
+            {
+                shielded = true;
+                shieldTimer = Tuning::kShieldDuration;
+            }
+        }
+    }
+
+    // Отбрасывание (Шаг 30): смещаем по импульсу и плавно гасим его.
+    if (knockbackVel.x != 0.0f || knockbackVel.y != 0.0f)
+    {
+        float kx = knockbackVel.x * deltaTime;
+        float ky = knockbackVel.y * deltaTime;
+        position.x += kx;
+        if (map.CheckCollision(GetRect())) position.x -= kx;
+        position.y += ky;
+        if (map.CheckCollision(GetRect())) position.y -= ky;
+        float decay = Tuning::kKnockbackDecay * deltaTime;
+        if (decay > 1.0f) decay = 1.0f;
+        knockbackVel.x -= knockbackVel.x * decay;
+        knockbackVel.y -= knockbackVel.y * decay;
+        if (fabsf(knockbackVel.x) < 4.0f) knockbackVel.x = 0.0f;
+        if (fabsf(knockbackVel.y) < 4.0f) knockbackVel.y = 0.0f;
+    }
+
+    // Заморозка (Шаг 31): отсчитываем время статуса; замедление применяется к шагу ниже.
+    float freezeFactor = 1.0f;
+    if (freezeTimer > 0.0f)
+    {
+        freezeTimer -= deltaTime;
+        freezeFactor = Tuning::kFreezeFactor;
+    }
+
     // Фаза 4: приёмы мобильности. Если приём занял кадр — обычное движение пропускаем.
     if (UpdateMobility(deltaTime, playerPos, map, telegraphs, effects)) return;
 
-    float step = speed * deltaTime;
+    float step = speed * deltaTime * freezeFactor;
 
     // Фланг (Шаг 21): держим дистанцию и заходим сбоку, а не в лоб.
     if (mobility == MOB_FLANK)
@@ -380,6 +565,20 @@ void Enemy::Draw() const
 
     Vector2 drawPos = { position.x, position.y + drawYOffset };
 
+    // Особые способности (Фаза 5): «наземные» кольца рисуем ПОД сущностью.
+    if (!dying)
+    {
+        if (special == SPEC_SLOW_AURA)   // Шаг 26: полупрозрачная аура замедления
+        {
+            DrawCircleV(position, Tuning::kSlowAuraRadius, Color{ 80, 120, 255, 28 });
+            DrawCircleLines((int)position.x, (int)position.y, Tuning::kSlowAuraRadius,
+                            Color{ 120, 160, 255, 90 });
+        }
+        if (special == SPEC_HEALER)      // Шаг 28: зелёное кольцо радиуса лечения
+            DrawCircleLines((int)position.x, (int)position.y, Tuning::kHealerRadius,
+                            Color{ 80, 255, 140, 60 });
+    }
+
     if (dying)
     {
         if (deathAnim.Valid())
@@ -394,22 +593,55 @@ void Enemy::Draw() const
 
     bool charging = dashing || dashTelegraphing;   // рывок и его подготовка — оранжевая подсветка
 
+    // Цветовая подсветка статусов (Шаг 31): заморозка > горение > яд.
     if (walkAnim.Valid())
     {
         float target = size * 2.6f;
         float h = (float)walkAnim.FrameHeight();
         float sc = (h > 0.0f) ? target / h : 1.0f;
-        Color tint = charging ? Color{ 255, 180, 120, 255 } : WHITE;
+        Color tint = WHITE;
+        if (charging)                tint = Color{ 255, 180, 120, 255 };
+        else if (freezeTimer > 0.0f) tint = Color{ 150, 210, 255, 255 };
+        else if (burnTimer > 0.0f)   tint = Color{ 255, 130, 70, 255 };
+        else if (poisonTimer > 0.0f) tint = Color{ 150, 255, 120, 255 };
         walkAnim.Draw(drawPos, sc, facingLeft, tint);
     }
     else
     {
-        Color c = charging ? ORANGE : color;
+        Color c = color;
+        if (charging)                c = ORANGE;
+        else if (freezeTimer > 0.0f) c = Color{ 120, 190, 255, 255 };
+        else if (burnTimer > 0.0f)   c = Color{ 255, 110, 60, 255 };
+        else if (poisonTimer > 0.0f) c = Color{ 120, 230, 90, 255 };
         DrawRectangle((int)(drawPos.x - size), (int)(drawPos.y - size),
                       (int)(size * 2.0f), (int)(size * 2.0f), c);
         if (type == ENEMY_BOSS)
             DrawRectangleLines((int)(drawPos.x - size), (int)(drawPos.y - size),
                                (int)(size * 2.0f), (int)(size * 2.0f), YELLOW);
+    }
+
+    // Щит (Шаг 23): синие кольца ПОВЕРХ врага, пока активна неуязвимость.
+    if (shielded)
+    {
+        DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + 6.0f, Color{ 90, 180, 255, 255 });
+        DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + 10.0f, Color{ 90, 180, 255, 160 });
+    }
+
+    // Элитная подсветка (Шаг 32): пульсирующее цветное кольцо вокруг элиты.
+    if (elite != ELITE_NONE)
+    {
+        Color ec = WHITE;
+        switch (elite)
+        {
+            case ELITE_SWIFT:     ec = Color{ 120, 230, 255, 255 }; break; // голубой — скорость
+            case ELITE_ARMORED:   ec = Color{ 210, 210, 235, 255 }; break; // серебристый — броня
+            case ELITE_EXPLOSIVE: ec = Color{ 255, 140, 40, 255 };  break; // оранжевый — взрыв
+            case ELITE_GIANT:     ec = Color{ 220, 120, 255, 255 }; break; // фиолетовый — гигант
+            default: break;
+        }
+        float pulse = 4.0f + 2.0f * sinf((float)GetTime() * 6.0f);
+        DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + pulse, ec);
+        DrawCircleLines((int)drawPos.x, (int)drawPos.y, size + pulse + 3.0f, Fade(ec, 0.5f));
     }
 
     DrawHealthBar();

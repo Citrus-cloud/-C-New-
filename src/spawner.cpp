@@ -4,6 +4,9 @@
 #include "tuning.h"      // все числовые параметры спавна берём отсюда (Фаза 1)
 #include "telegraph.h"  // система телеграфов (Фаза 2)
 #include "ranged.h"     // система снарядов (Фаза 3)
+#include "effects.h"    // визуальные эффекты (Фаза 4-5: магический круг призыва/лечения)
+#include "hazards.h"    // система опасных зон (Фаза 5, ядовитый след)
+#include "combat.h"     // полное определение Weapon/Projectile для уклонения (Фаза 6, Шаг 33)
 #include <cmath>
 
 Spawner::Spawner(int poolSize)
@@ -11,7 +14,8 @@ Spawner::Spawner(int poolSize)
       bossTimer(0.0f), bossInterval(Tuning::kBossInterval), elapsed(0.0f),
       bossEventLine(-1), bossSpawnCount(0), telegraphTimer(0.0f),
       shooterTimer(0.0f), bossRangedTimer(0.0f), bossRangedPattern(0),
-      telegraphs(nullptr), ranged(nullptr), effects(nullptr)
+      telegraphs(nullptr), ranged(nullptr), effects(nullptr), hazards(nullptr),
+      weapon(nullptr)
 {
     enemies.resize(poolSize);
 }
@@ -29,6 +33,16 @@ void Spawner::SetRanged(RangedSystem* r)
 void Spawner::SetEffects(Effects* e)
 {
     effects = e;
+}
+
+void Spawner::SetHazards(HazardSystem* h)
+{
+    hazards = h;
+}
+
+void Spawner::SetWeapon(Weapon* w)
+{
+    weapon = w;
 }
 
 void Spawner::LoadArt(TextureManager& tex)
@@ -100,6 +114,160 @@ void Spawner::MaybeAssignMobility(Enemy* e)
     }
 }
 
+// Назначает обычному врагу ОСОБУЮ способность (Фаза 5, Шаг 23-28). С вероятностью
+// kSpecialChance выбирает одну из РАЗБЛОКИРОВАННЫХ по весам из kAbilityRules. Не зависит
+// от приёма мобильности: враг может иметь и перемещение, и особую способность.
+void Spawner::MaybeAssignSpecial(Enemy* e)
+{
+    if (!e || e->type == ENEMY_BOSS) return;
+    if (GetRandomValue(0, 99) >= Tuning::kSpecialChance) return;
+
+    const Tuning::AbilityId ids[5]  = { Tuning::ABIL_SHIELD, Tuning::ABIL_SPLIT,
+                                        Tuning::ABIL_SLOW_AURA, Tuning::ABIL_POISON_TRAIL,
+                                        Tuning::ABIL_HEALER };
+    const int               kinds[5] = { SPEC_SHIELD, SPEC_SPLIT, SPEC_SLOW_AURA,
+                                         SPEC_POISON_TRAIL, SPEC_HEALER };
+
+    // Суммарный вес разблокированных способностей.
+    float total = 0.0f;
+    for (int i = 0; i < 5; i++)
+        if (Tuning::IsUnlockedAt(ids[i], elapsed)) total += Tuning::GetRule(ids[i]).weight;
+    if (total <= 0.0f) return;
+
+    float r = (float)GetRandomValue(0, 10000) / 10000.0f * total;
+    for (int i = 0; i < 5; i++)
+    {
+        if (!Tuning::IsUnlockedAt(ids[i], elapsed)) continue;
+        r -= Tuning::GetRule(ids[i]).weight;
+        if (r <= 0.0f) { e->ApplySpecial(kinds[i]); break; }
+    }
+}
+
+// Назначает обычному врагу ЭЛИТНЫЙ модификатор (Фаза 6, Шаг 32). С вероятностью
+// kEliteChance после kEliteUnlockTime выбирает один из модификаторов равновероятно.
+// Не зависит от мобильности/особой способности: элита может иметь и их.
+void Spawner::MaybeAssignElite(Enemy* e)
+{
+    if (!e || e->type == ENEMY_BOSS) return;
+    if (elapsed < Tuning::kEliteUnlockTime) return;
+    if (GetRandomValue(0, 99) >= Tuning::kEliteChance) return;
+
+    const int kinds[4] = { ELITE_SWIFT, ELITE_ARMORED, ELITE_EXPLOSIVE, ELITE_GIANT };
+    e->ApplyElite(kinds[GetRandomValue(0, 3)]);
+}
+
+// Назначает обычному врагу улучшенный ИИ (Фаза 6, Шаг 33): с вероятностью
+// kProjDodgeChance после kProjDodgeUnlockTime враг начинает уклоняться от снарядов игрока.
+// Не зависит от других приёмов — это пассивное улучшение поведения.
+void Spawner::MaybeAssignAI(Enemy* e)
+{
+    if (!e || e->type == ENEMY_BOSS) return;
+    e->projectileDodger = false;
+    if (elapsed < Tuning::kProjDodgeUnlockTime) return;
+    if (GetRandomValue(0, 99) < Tuning::kProjDodgeChance) e->projectileDodger = true;
+}
+
+// Групповое расталкивание (Шаг 33): враги, оказавшиеся ближе kSeparationRadius,
+// мягко толкают друг друга, чтобы не слипаться в одну точку. Сдвиг — с проверкой стен.
+// O(n^2) по пулу, но число соседей ограничено kSeparationMaxNeighbors.
+void Spawner::ApplySeparation(const TileMap& map, float dt)
+{
+    const float r = Tuning::kSeparationRadius;
+    for (auto& e : enemies)
+    {
+        if (!e.active || e.dying) continue;
+        if (e.type == ENEMY_BOSS) continue;          // боссов не расталкиваем
+        if (e.jumping || e.dashing) continue;         // в полёте/рывке не мешаем приёму
+
+        float pushX = 0.0f, pushY = 0.0f;
+        int neighbors = 0;
+        for (auto& o : enemies)
+        {
+            if (&o == &e) continue;
+            if (!o.active || o.dying) continue;
+            float dx = e.position.x - o.position.x;
+            float dy = e.position.y - o.position.y;
+            float d2 = dx * dx + dy * dy;
+            if (d2 >= r * r || d2 <= 0.0001f) continue;
+            float d = sqrtf(d2);
+            float w = (r - d) / r;                    // ближе = сильнее (0..1)
+            pushX += dx / d * w;
+            pushY += dy / d * w;
+            if (++neighbors >= Tuning::kSeparationMaxNeighbors) break;
+        }
+        if (neighbors == 0) continue;
+
+        float step = Tuning::kSeparationForce * dt;
+        float mx = pushX * step;
+        float my = pushY * step;
+        e.position.x += mx;
+        if (map.CheckCollision(e.GetRect())) e.position.x -= mx;
+        e.position.y += my;
+        if (map.CheckCollision(e.GetRect())) e.position.y -= my;
+    }
+}
+
+// Уклонение от снарядов (Шаг 33): враг-«уклонист» ищет ближайший снаряд игрока,
+// летящий примерно в него, и делает короткий шаг перпендикулярно линии полёта.
+// Снаряды живут в weapon->pool; спавнер идёт ДО оружия, поэтому видим снаряды прошлого кадра.
+void Spawner::ApplyProjectileDodge(const TileMap& map, float dt)
+{
+    if (!weapon) return;
+    const float sense = Tuning::kProjDodgeSenseRadius;
+    for (auto& e : enemies)
+    {
+        if (!e.active || e.dying) continue;
+        if (!e.projectileDodger) continue;
+        if (e.type == ENEMY_BOSS) continue;
+        if (e.jumping || e.dashing || e.dashTelegraphing) continue;   // занят приёмом
+        if (e.dodgeReactCd > 0.0f) { e.dodgeReactCd -= dt; continue; }
+
+        // Ищем ближайший угрожающий снаряд, нацеленный на этого врага.
+        float bestD2 = sense * sense;
+        const Projectile* threat = nullptr;
+        for (auto& p : weapon->pool)
+        {
+            if (!p.active) continue;
+            float dx = e.position.x - p.position.x;
+            float dy = e.position.y - p.position.y;
+            float d2 = dx * dx + dy * dy;
+            if (d2 >= bestD2) continue;
+            float vlen = sqrtf(p.velocity.x * p.velocity.x + p.velocity.y * p.velocity.y);
+            if (vlen < 0.0001f) continue;
+            float d = sqrtf(d2);
+            if (d < 0.0001f) continue;
+            // Насколько снаряд нацелен на врага (dot единичных векторов).
+            float dot = (p.velocity.x / vlen) * (dx / d) + (p.velocity.y / vlen) * (dy / d);
+            if (dot < Tuning::kProjDodgeThreatDot) continue;   // летит мимо
+            bestD2 = d2;
+            threat = &p;
+        }
+        if (!threat) continue;
+
+        // Шаг в сторону от линии полёта снаряда (перпендикуляр к скорости).
+        float vlen = sqrtf(threat->velocity.x * threat->velocity.x +
+                           threat->velocity.y * threat->velocity.y);
+        float vx = threat->velocity.x / vlen;
+        float vy = threat->velocity.y / vlen;
+        float tx = e.position.x - threat->position.x;
+        float ty = e.position.y - threat->position.y;
+        float cross = vx * ty - vy * tx;          // с какой стороны линии находится враг
+        float side = (cross >= 0.0f) ? 1.0f : -1.0f;
+        float px = -vy * side;                    // перпендикуляр к направлению снаряда
+        float py =  vx * side;
+
+        float step = Tuning::kProjDodgeSpeed * dt;
+        float mx = px * step;
+        float my = py * step;
+        e.position.x += mx;
+        if (map.CheckCollision(e.GetRect())) e.position.x -= mx;
+        e.position.y += my;
+        if (map.CheckCollision(e.GetRect())) e.position.y -= my;
+
+        e.dodgeReactCd = Tuning::kProjDodgeCooldown;
+    }
+}
+
 Enemy* Spawner::GetInactive()
 {
     for (auto& e : enemies)
@@ -107,6 +275,13 @@ Enemy* Spawner::GetInactive()
     return nullptr;
 }
 
+// Спавн волны врагов (v0.4 Фаза 3, Шаг 13: распределение по большому полю).
+// Базово враги появляются кольцом вокруг игрока, но теперь с разбросом по радиусу
+// (kWaveRingJitter) и углу (kWaveAngleJitter) — волна перестаёт быть идеальным
+// кольцом. С вероятностью kFarSpawnChance отдельный враг вместо кольца появляется
+// у ДАЛЬНЕЙ зоны интереса (POI из map.rooms), удалённой минимум на kFarSpawnMinDist.
+// Так угроза распределяется по всему большому полю, а ориентиры становятся живыми
+// точками притяжения — у игрока появляется стимул двигаться, а не стоять на месте.
 void Spawner::SpawnWave(Vector2 center, const TileMap& map)
 {
     // Размер волны берём из конфига (растёт со временем до потолка).
@@ -115,10 +290,40 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
     {
         Enemy* e = GetInactive();
         if (!e) break;
-        float angle = (float)i / count * 2.0f * PI;
-        float r = 500.0f;
-        Vector2 pos = { center.x + cosf(angle) * r, center.y + sinf(angle) * r };
-        pos = map.FindFreeSpot(pos, 16.0f);
+
+        // --- Выбор позиции появления (Шаг 13) ---
+        Vector2 pos;
+        bool placed = false;
+
+        // Дальний спавн у зоны интереса: тянет волну к ориентирам на большом поле.
+        if (GetRandomValue(0, 99) < Tuning::kFarSpawnChance && !map.rooms.empty())
+        {
+            for (int tries = 0; tries < 6 && !placed; tries++)
+            {
+                const Vector2& room = map.rooms[GetRandomValue(0, (int)map.rooms.size() - 1)];
+                Vector2 wp = { room.x * map.tileSize + map.tileSize * 0.5f,
+                               room.y * map.tileSize + map.tileSize * 0.5f };
+                float dx = wp.x - center.x, dy = wp.y - center.y;
+                if (dx * dx + dy * dy < Tuning::kFarSpawnMinDist * Tuning::kFarSpawnMinDist) continue;
+                Vector2 cand = { wp.x + (float)GetRandomValue(-80, 80),
+                                 wp.y + (float)GetRandomValue(-80, 80) };
+                pos = map.FindFreeSpot(cand, 16.0f);
+                placed = true;
+            }
+        }
+
+        // База: кольцо вокруг игрока с разбросом по радиусу и углу.
+        if (!placed)
+        {
+            float baseAngle = (float)i / count * 2.0f * PI;
+            float angle = baseAngle
+                        + (float)GetRandomValue(-1000, 1000) / 1000.0f * Tuning::kWaveAngleJitter;
+            float r = Tuning::kWaveSpawnRadius
+                    + (float)GetRandomValue(-1000, 1000) / 1000.0f * Tuning::kWaveRingJitter;
+            if (r < 100.0f) r = 100.0f;   // не даём кольцу схлопнуться на игрока
+            Vector2 cand = { center.x + cosf(angle) * r, center.y + sinf(angle) * r };
+            pos = map.FindFreeSpot(cand, 16.0f);
+        }
 
         // Состав волны тоже из конфига: танки после kTankUnlockTime, шансы — kTankChance/kFastChance.
         EnemyType t = ENEMY_GRUNT;
@@ -129,6 +334,9 @@ void Spawner::SpawnWave(Vector2 center, const TileMap& map)
         e->Spawn(pos, t);
         AssignArt(e, t);
         MaybeAssignMobility(e);   // Фаза 4: возможный приём перемещения
+        MaybeAssignSpecial(e);    // Фаза 5: возможная особая способность
+        MaybeAssignElite(e);      // Фаза 6 (Шаг 32): возможный элитный модификатор
+        MaybeAssignAI(e);         // Фаза 6 (Шаг 33): возможное уклонение от снарядов
     }
 }
 
@@ -136,7 +344,7 @@ void Spawner::SpawnBoss(Vector2 center, const TileMap& map)
 {
     Enemy* e = GetInactive();
     if (!e) return;
-    Vector2 pos = { center.x + 600.0f, center.y };
+    Vector2 pos = { center.x + Tuning::kBossSpawnDistance, center.y };   // дистанция спавна босса — из конфига (Шаг 4)
     pos = map.FindFreeSpot(pos, 38.0f);
 
     int bossId = bossSpawnCount % BOSS_COUNT;   // чередуем боссов
@@ -175,24 +383,48 @@ void Spawner::SpawnMobilityTest(Vector2 center, const TileMap& map)
     }
 }
 
+// Отладка (F7, Шаг 28): спавним по одному врагу с каждой особой способностью
+// вокруг точки center, игнорируя время разблокировки — для быстрой проверки.
+void Spawner::SpawnSpecialTest(Vector2 center, const TileMap& map)
+{
+    const int kinds[5] = { SPEC_SHIELD, SPEC_SPLIT, SPEC_SLOW_AURA, SPEC_POISON_TRAIL, SPEC_HEALER };
+    for (int i = 0; i < 5; i++)
+    {
+        Enemy* e = GetInactive();
+        if (!e) break;
+        float ang = (float)i / 5.0f * 2.0f * PI;
+        Vector2 pos = { center.x + cosf(ang) * 260.0f, center.y + sinf(ang) * 260.0f };
+        pos = map.FindFreeSpot(pos, 16.0f);
+        // Танк лучше виден для теста щита/деления.
+        e->Spawn(pos, ENEMY_TANK);
+        AssignArt(e, ENEMY_TANK);
+        e->ApplySpecial(kinds[i]);
+    }
+}
+
 void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
 {
     elapsed += deltaTime;
 
-    // Темп волн — из конфига (интервал сокращается со временем, см. Tuning).
-    spawnTimer += deltaTime;
-    float curInterval = Tuning::CurrentSpawnInterval(elapsed);
-    if (spawnTimer >= curInterval)
+    // Чит «пауза спавна» (v0.4, Шаг 28): пока включён, новые волны и боссы не
+    // появляются, но уже живые враги продолжают двигаться и действовать.
+    if (!Tuning::IsSpawnPaused())
     {
-        spawnTimer = 0.0f;
-        SpawnWave(player.position, map);
-    }
+        // Темп волн — из конфига (интервал сокращается со временем, см. Tuning).
+        spawnTimer += deltaTime;
+        float curInterval = Tuning::CurrentSpawnInterval(elapsed);
+        if (spawnTimer >= curInterval)
+        {
+            spawnTimer = 0.0f;
+            SpawnWave(player.position, map);
+        }
 
-    bossTimer += deltaTime;
-    if (Tuning::kBossEnabled && bossTimer >= Tuning::kBossInterval)
-    {
-        bossTimer = 0.0f;
-        SpawnBoss(player.position, map);
+        bossTimer += deltaTime;
+        if (Tuning::kBossEnabled && bossTimer >= Tuning::kBossInterval)
+        {
+            bossTimer = 0.0f;
+            SpawnBoss(player.position, map);
+        }
     }
 
     bool bossActive = false;   // есть ли сейчас живой босс
@@ -209,30 +441,132 @@ void Spawner::Update(float deltaTime, Player& player, const TileMap& map)
             bossColor = e.color;
         }
 
-        // Призыв миньонов (Королева пауков). Интервал — из BossDef, кол-во — из Tuning.
+        // --- Разделение при смерти (Шаг 24): флаг выставлен в DamageEnemy ---
+        if (e.wantSplit)
+        {
+            e.wantSplit = false;
+            for (int s = 0; s < Tuning::kSplitCount; s++)
+            {
+                Enemy* shard = GetInactive();
+                if (!shard) break;
+                float ang = (float)s / Tuning::kSplitCount * 2.0f * PI;
+                Vector2 sp = { e.position.x + cosf(ang) * Tuning::kSplitSpread,
+                               e.position.y + sinf(ang) * Tuning::kSplitSpread };
+                sp = map.FindFreeSpot(sp, 12.0f);
+                shard->Spawn(sp, ENEMY_FAST);
+                AssignArt(shard, ENEMY_FAST);
+                // Осколки слабее и мельче родителя; повторно НЕ делятся (splitsOnDeath=false из Spawn).
+                int hp = (int)(e.maxHealth * Tuning::kSplitHealthFrac);
+                if (hp < 1) hp = 1;
+                shard->maxHealth = hp;
+                shard->health = hp;
+                shard->size = e.size * Tuning::kSplitSizeFrac;
+            }
+        }
+
+        // --- Взрывной элит (Шаг 32): при гибели взрывается по площади ---
+        // Урон наносится через телеграф-зону (короткое предупреждение), а не мгновенно.
+        if (e.wantExplode)
+        {
+            e.wantExplode = false;
+            if (telegraphs)
+                telegraphs->SpawnCircle(e.position, Tuning::kEliteExplosiveRadius,
+                                        Tuning::kEliteExplosiveDamage, Tuning::kEliteExplosiveFill,
+                                        Color{ 255, 120, 30, 255 });
+            if (effects)
+            {
+                effects->SpawnExplosion(e.position, 1.6f);
+                effects->SpawnSparks(e.position, Color{ 255, 140, 40, 255 }, 20);
+                effects->Shake(6.0f, 0.2f);
+            }
+        }
+
+        // --- Аура замедления (Шаг 26): если игрок в радиусе — замедляем ---
+        if (e.active && !e.dying && e.special == SPEC_SLOW_AURA)
+        {
+            float dx = player.position.x - e.position.x;
+            float dy = player.position.y - e.position.y;
+            if (dx * dx + dy * dy <= Tuning::kSlowAuraRadius * Tuning::kSlowAuraRadius)
+                player.ApplySlow(Tuning::kSlowAuraFactor);
+        }
+
+        // --- Ядовитый след (Шаг 27): периодически роняем лужу в систему хазардов ---
+        if (e.active && !e.dying && e.special == SPEC_POISON_TRAIL && hazards)
+        {
+            e.poisonDropTimer -= deltaTime;
+            if (e.poisonDropTimer <= 0.0f)
+            {
+                e.poisonDropTimer = Tuning::kPoisonDropInterval;
+                hazards->Spawn(e.position, Tuning::kPoisonRadius, Tuning::kPoisonDamage,
+                               Tuning::kPoisonTick, Tuning::kPoisonLifetime,
+                               Color{ 80, 220, 60, 255 });
+            }
+        }
+
+        // --- Лекарь (Шаг 28): периодически лечим союзников в радиусе ---
+        if (e.active && !e.dying && e.special == SPEC_HEALER)
+        {
+            e.healTimer -= deltaTime;
+            if (e.healTimer <= 0.0f)
+            {
+                e.healTimer = Tuning::kHealInterval;
+                for (auto& ally : enemies)
+                {
+                    if (&ally == &e) continue;            // себя не лечим
+                    if (!ally.active || ally.dying) continue;
+                    float dx = ally.position.x - e.position.x;
+                    float dy = ally.position.y - e.position.y;
+                    if (dx * dx + dy * dy <= Tuning::kHealerRadius * Tuning::kHealerRadius)
+                    {
+                        ally.health += Tuning::kHealAmount;
+                        if (ally.health > ally.maxHealth) ally.health = ally.maxHealth;
+                    }
+                }
+                if (effects) effects->SpawnMagicCircle(e.position, 2.0f);   // зелёный импульс лечения
+            }
+        }
+
+        // Призыв миньонов (Шаг 25): типы миньонов + лимит активных. Интервал — из BossDef.
         if (e.active && !e.dying && e.canSummon)
         {
             e.summonTimer -= deltaTime;
             if (e.summonTimer <= 0.0f)
             {
                 e.summonTimer = GetBossDef(e.bossId).summonInterval;
-                for (int s = 0; s < Tuning::kSummonMinionCount; s++)
+                // Не заспавним карту: призыв работает только пока активных меньше лимита.
+                if (ActiveCount() < Tuning::kSummonMaxActive)
                 {
-                    Enemy* m = GetInactive();
-                    if (!m) break;
-                    float ang = (float)s / Tuning::kSummonMinionCount * 2.0f * PI;
-                    Vector2 mp = { e.position.x + cosf(ang) * 60.0f, e.position.y + sinf(ang) * 60.0f };
-                    mp = map.FindFreeSpot(mp, 12.0f);
-                    m->Spawn(mp, ENEMY_FAST);
-                    AssignArt(m, ENEMY_FAST);
-                    MaybeAssignMobility(m);   // призванные миньоны тоже могут быть мобильными
+                    for (int s = 0; s < Tuning::kSummonMinionCount; s++)
+                    {
+                        Enemy* m = GetInactive();
+                        if (!m) break;
+                        float ang = (float)s / Tuning::kSummonMinionCount * 2.0f * PI;
+                        Vector2 mp = { e.position.x + cosf(ang) * 60.0f, e.position.y + sinf(ang) * 60.0f };
+                        mp = map.FindFreeSpot(mp, 12.0f);
+                        // Тип миньона: танк (после kSummonTankTime), иначе быстрый, иначе обычный.
+                        EnemyType mt = ENEMY_GRUNT;
+                        int roll = GetRandomValue(0, 99);
+                        if (elapsed > Tuning::kSummonTankTime && roll < Tuning::kSummonTankChance) mt = ENEMY_TANK;
+                        else if (roll < Tuning::kSummonFastChance) mt = ENEMY_FAST;
+                        m->Spawn(mp, mt);
+                        AssignArt(m, mt);
+                        MaybeAssignMobility(m);   // призванные миньоны тоже могут быть мобильными
+                    }
+                    if (effects) effects->SpawnMagicCircle(e.position, 1.4f);   // fx призыва
                 }
             }
         }
 
-        if (e.active && !e.dying && CheckCollisionRecs(e.GetRect(), player.GetRect()))
+        // Чит «сквозь врагов» (v0.4, Шаг 29): пропускаем контактный урон.
+        if (e.active && !e.dying && !Tuning::IsPassThrough() &&
+            CheckCollisionRecs(e.GetRect(), player.GetRect()))
             player.TakeDamage(e.damage);
     }
+
+    // Улучшенный ИИ (Шаг 33): после движения врагов — групповое расталкивание
+    // и уклонение «уклонистов» от летящих снарядов игрока.
+    ApplySeparation(map, deltaTime);
+    ApplyProjectileDodge(map, deltaTime);
 
     // Тест конвейера телеграфов (Шаг 9): активный босс периодически «заказывает»
     // предупреждающую зону под игроком. Все числа — из конфига.

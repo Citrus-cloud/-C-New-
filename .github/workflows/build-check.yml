@@ -1,0 +1,57 @@
+
+name: Build Check
+
+# Runs on PR open/update to main, and manual dispatch.
+on:
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # System deps required by raylib for desktop build (OpenGL/X11/Wayland).
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev wayland-protocols
+
+      # CMakeLists POST_BUILD copies assets/ - create empty dir so it doesn't fail.
+      - name: Prepare assets dir
+        run: mkdir -p assets
+
+      - name: Configure (CMake)
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release 2>&1 | tee -a build.log
+
+      - name: Build
+        run: cmake --build build --config Release 2>&1 | tee -a build.log
+
+      # Publish status + tail of compile log into a PR comment.
+      - name: Post result as PR comment
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          {
+            echo "## CI build result: ${{ job.status }}"
+            echo ""
+            echo "Commit: \`${{ github.sha }}\`"
+            echo ""
+            echo "### Tail of compile log (last ~60000 chars)"
+            echo '```'
+            tail -c 60000 build.log 2>/dev/null || echo "(empty log)"
+            echo '```'
+          } > comment.md
+          gh pr comment "${{ github.event.pull_request.number }}" --body-file comment.md
+          

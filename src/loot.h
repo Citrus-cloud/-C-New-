@@ -6,7 +6,9 @@
 class Player;
 class Weapon;
 
-enum LootType { LOOT_HEALTH, LOOT_POWER };
+// Типы лута. LOOT_CHEST (v0.4 Шаг 14) — сундук-награда на поле: даёт сразу
+// и лечение (kChestHealAmount), и усиление урона (kChestPowerBonus) — стимул дойти.
+enum LootType { LOOT_HEALTH, LOOT_POWER, LOOT_CHEST };
 
 struct Loot
 {

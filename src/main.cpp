@@ -16,12 +16,12 @@
 #include "characters.h"
 #include "bosses.h"
 #include "maps.h"
-#include "tuning.h"     // единый конфиг боя (Фаза 1)
-#include "director.h"   // менеджер волн и доступности приёмов (Фаза 1)
-#include "telegraph.h"  // система телеграфов-предупреждений (Фаза 2)
-#include "ranged.h"     // система дальних атак / снарядов врагов (Фаза 3)
+#include "tuning.h"
+#include "director.h"
+#include "telegraph.h"
+#include "ranged.h"
+#include "hazards.h"
 
-// Состояния игры. MENU/SELECT/META/SETTINGS — экраны лагеря (Фаза 6).
 enum GameState { MENU, SELECT, META, SETTINGS, PLAYING, LEVEL_UP, PAUSED, GAME_OVER };
 
 int main()
@@ -29,7 +29,7 @@ int main()
     const int screenWidth = 1280;
     const int screenHeight = 720;
 
-    InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition v0.2");
+    InitWindow(screenWidth, screenHeight, "Dungeon Survivors: D20 - C++ edition v0.4");
     SetTargetFPS(60);
 
     AudioManager audio;
@@ -50,12 +50,15 @@ int main()
     player.LoadSprites(textures);
     Spawner spawner(200);
     spawner.LoadArt(textures);
-    WaveDirector director;   // менеджер волн и доступности приёмов (Фаза 1)
-    TelegraphSystem telegraphs(64);   // система предупреждающих зон (Фаза 2)
-    RangedSystem ranged(256);         // пул снарядов врагов (Фаза 3)
-    spawner.SetTelegraphs(&telegraphs);   // враги «заказывают» зоны через спавнер
-    spawner.SetRanged(&ranged);           // и выпускают снаряды через него (Фаза 3)
+    WaveDirector director;
+    TelegraphSystem telegraphs(64);
+    RangedSystem ranged(256);
+    spawner.SetTelegraphs(&telegraphs);
+    spawner.SetRanged(&ranged);
+    HazardSystem hazards(Tuning::kHazardPoolSize);
+    spawner.SetHazards(&hazards);
     Weapon weapon(300);
+    spawner.SetWeapon(&weapon);
     ExpOrbs orbs(500);
     Traps traps;
     traps.Generate(map, 16, 777u);
@@ -63,27 +66,30 @@ int main()
 
     Effects effects;
     effects.LoadArt(textures);
-    spawner.SetEffects(&effects);   // эффекты для приёмов мобильности (Фаза 4)
+    spawner.SetEffects(&effects);
 
-    // Способности игрока (Шаг 23), выбранный класс и карта (Шаг 24-25).
     Abilities abilities;
     int selectedCharacter = CHAR_WARRIOR;
     int selectedMap = MAP_DUNGEON;
-    int settingsRow = 0;        // выбранная строка в настройках (Шаг 27)
-    int lastEarnedCoins = 0;    // монеты за последний забег (Шаг 26)
+    int settingsRow = 0;
+    int lastEarnedCoins = 0;
 
     float survivalTime = 0.0f;
     float subtitleTimer = 0.0f;
     int subtitleLine = -1;
     bool newRecord = false;
-    bool showDebug = false;     // отладочный показ правил конфига (клавиша F3, Фаза 1)
+    bool showDebug = false;
+    bool showOverlay = false;
+    bool showTune = false;
+    int  tuneRow = 0;
+    bool cheatedThisRun = false;
 
     GameState state = MENU;
 
     Camera2D camera = { 0 };
     camera.offset = { screenWidth / 2.0f, screenHeight / 2.0f };
     camera.rotation = 0.0f;
-    camera.zoom = 1.0f;
+    camera.zoom = Tuning::kCameraZoom;
     camera.target = player.position;
     Vector2 baseCamOffset = camera.offset;
 
@@ -95,22 +101,69 @@ int main()
         player.LoadSprites(textures);
         spawner = Spawner(200);
         spawner.LoadArt(textures);
-        director.Reset();   // сброс времени забега и кулдаунов (Фаза 1)
-        telegraphs.Clear();                 // очистка предупреждающих зон (Фаза 2)
-        ranged.Clear();                     // очистка снарядов врагов (Фаза 3)
-        spawner.SetTelegraphs(&telegraphs); // спавнер пересоздан — заново привязываем телеграфы
-        spawner.SetRanged(&ranged);         // и систему снарядов (Фаза 3)
-        spawner.SetEffects(&effects);       // и систему эффектов (Фаза 4)
+        director.Reset();
+        telegraphs.Clear();
+        ranged.Clear();
+        hazards.Clear();
+        spawner.SetTelegraphs(&telegraphs);
+        spawner.SetRanged(&ranged);
+        spawner.SetEffects(&effects);
+        spawner.SetHazards(&hazards);
+        spawner.SetWeapon(&weapon);
         weapon = Weapon(300);
         orbs = ExpOrbs(500);
         traps = Traps();
         traps.Generate(map, 16, (unsigned)GetRandomValue(1, 1000000));
         loot = LootDrops(200);
+
+        {
+            int cols = map.Cols();
+            int rows = map.Rows();
+            auto randWorld = [&](Vector2& out) -> bool {
+                for (int tries = 0; tries < 12; tries++)
+                {
+                    int cx = GetRandomValue(1, cols - 2);
+                    int cy = GetRandomValue(1, rows - 2);
+                    Vector2 w = { cx * (float)map.tileSize + map.tileSize * 0.5f,
+                                  cy * (float)map.tileSize + map.tileSize * 0.5f };
+                    Rectangle r = { w.x - 8.0f, w.y - 8.0f, 16.0f, 16.0f };
+                    if (map.IsFree(r)) { out = w; return true; }
+                }
+                return false;
+            };
+
+            for (int i = 0; i < Tuning::kFieldOrbCount; i++)
+            {
+                Vector2 w;
+                if (randWorld(w)) orbs.Spawn(w);
+            }
+            for (int i = 0; i < Tuning::kFieldLootCount; i++)
+            {
+                Vector2 w;
+                if (randWorld(w))
+                    loot.Spawn(w, (GetRandomValue(0, 1) == 0) ? LOOT_HEALTH : LOOT_POWER);
+            }
+            int chests = 0;
+            for (size_t i = 0; i < map.rooms.size() && chests < Tuning::kFieldChestCount; i++)
+            {
+                Vector2 w = { map.rooms[i].x * (float)map.tileSize + map.tileSize * 0.5f,
+                              map.rooms[i].y * (float)map.tileSize + map.tileSize * 0.5f };
+                Rectangle r = { w.x - 8.0f, w.y - 8.0f, 16.0f, 16.0f };
+                if (map.IsFree(r)) { loot.Spawn(w, LOOT_CHEST); chests++; }
+            }
+            while (chests < Tuning::kFieldChestCount)
+            {
+                Vector2 w;
+                if (!randWorld(w)) break;
+                loot.Spawn(w, LOOT_CHEST);
+                chests++;
+            }
+        }
+
         effects.Clear();
         abilities.Reset();
         ResetUpgrades();
 
-        // Применяем выбранный класс (Шаг 24).
         const CharacterClass& cc = GetCharacter(selectedCharacter);
         player.maxHealth += cc.bonusHealth;
         player.speed *= cc.moveSpeedMul;
@@ -118,12 +171,21 @@ int main()
         weapon.damage += cc.bonusDamage;
         if (cc.startWithOrbit) abilities.UnlockOrbit();
 
-        // Применяем мета-прокачку из лагеря (Шаг 26).
         player.maxHealth += save.upgHealth * 20;
         player.speed += save.upgSpeed * 15.0f;
         weapon.damage += save.upgDamage * 3;
 
         player.health = player.maxHealth;
+
+        if (Tuning::IsGodMode())      Tuning::ToggleGodMode();
+        if (Tuning::IsInvulnerable()) Tuning::ToggleInvuln();
+        if (Tuning::IsPassThrough())  Tuning::TogglePassThrough();
+        if (Tuning::IsNoCooldown())   Tuning::ToggleNoCooldown();
+        if (Tuning::IsSpawnPaused())  Tuning::ToggleSpawnPaused();
+        while (Tuning::CheatDamageMult() != 1)    Tuning::CycleDamageMult();
+        while (Tuning::CheatXpMult()    != 1)    Tuning::CycleXpMult();
+        while (Tuning::CheatSpeedMult() != 1.0f) Tuning::CycleSpeedMult();
+        cheatedThisRun = false;
 
         survivalTime = 0.0f;
         subtitleTimer = 0.0f;
@@ -202,21 +264,84 @@ int main()
         }
         else if (state == PLAYING)
         {
-            if (IsKeyPressed(KEY_F3)) showDebug = !showDebug;   // отладка: показать правила конфига
-            if (IsKeyPressed(KEY_F4))   // тест: вручную заказать круговую зону под игроком (Фаза 2)
+            if (IsKeyPressed(KEY_F1)) showOverlay = !showOverlay;
+            if (IsKeyPressed(KEY_F2)) Tuning::CycleDifficulty();
+            if (IsKeyPressed(KEY_F3)) showDebug = !showDebug;
+            if (IsKeyPressed(KEY_F4))
                 telegraphs.SpawnCircle(player.position, 120.0f, 15, Tuning::kTelegraphDefaultFill, ORANGE);
-            if (IsKeyPressed(KEY_F5))   // тест: залп снарядов по игроку из точки выше (Фаза 3)
+            if (IsKeyPressed(KEY_F5))
                 ranged.FireVolley(Vector2{ player.position.x, player.position.y - 300.0f },
                                   player.position, Tuning::kVolleyCount,
                                   Tuning::kVolleySpread, Tuning::kVolleyDamage, PURPLE);
-            if (IsKeyPressed(KEY_F6))   // тест: спавн врагов со всеми приёмами мобильности (Фаза 4)
+            if (IsKeyPressed(KEY_F6))
                 spawner.SpawnMobilityTest(player.position, map);
+            if (IsKeyPressed(KEY_F7))
+                spawner.SpawnSpecialTest(player.position, map);
+            if (IsKeyPressed(KEY_F8)) showTune = !showTune;
+            if (IsKeyPressed(KEY_F9)) Tuning::ToggleDevPanel();
+            if (Tuning::IsDevPanelOpen())
+            {
+                if (IsKeyPressed(KEY_ONE))   Tuning::ToggleGodMode();
+                if (IsKeyPressed(KEY_TWO))   Tuning::CycleDamageMult();
+                if (IsKeyPressed(KEY_THREE)) Tuning::CycleXpMult();
+                if (IsKeyPressed(KEY_FOUR))  Tuning::CycleSpeedMult();
+                if (IsKeyPressed(KEY_FIVE))
+                    for (int i = 0; i < Tuning::kCheatLevelGrant; i++) player.xp += player.xpToNext;
+                if (IsKeyPressed(KEY_SIX))
+                    for (auto& e : spawner.enemies)
+                        if (e.active && !e.dying) { e.splitsOnDeath = false; DamageEnemy(e, 1000000, orbs, loot, effects); }
+                if (IsKeyPressed(KEY_SEVEN)) Tuning::ToggleSpawnPaused();
+                if (IsKeyPressed(KEY_EIGHT)) spawner.SpawnBoss(player.position, map);
+                if (IsKeyPressed(KEY_NINE))  Tuning::ToggleInvuln();
+                if (IsKeyPressed(KEY_ZERO))  Tuning::TogglePassThrough();
+                if (IsKeyPressed(KEY_C))     Tuning::ToggleNoCooldown();
+                if (IsKeyPressed(KEY_T))     player.position = GetScreenToWorld2D(GetMousePosition(), camera);
+                if (IsKeyPressed(KEY_G))
+                {
+                    player.xp += Tuning::kCheatGiveXp;
+                    save.coins += Tuning::kCheatGiveGold;
+                }
+                if (IsKeyPressed(KEY_U))
+                {
+                    abilities.UnlockOrbit();
+                    abilities.AddOrbit();
+                    abilities.UnlockNova();
+                    weapon.Evolve();
+                }
+                if (IsKeyPressed(KEY_ONE) || IsKeyPressed(KEY_TWO) || IsKeyPressed(KEY_THREE) ||
+                    IsKeyPressed(KEY_FOUR) || IsKeyPressed(KEY_FIVE) || IsKeyPressed(KEY_SIX) ||
+                    IsKeyPressed(KEY_SEVEN) || IsKeyPressed(KEY_EIGHT) || IsKeyPressed(KEY_NINE) ||
+                    IsKeyPressed(KEY_ZERO) || IsKeyPressed(KEY_C) || IsKeyPressed(KEY_T) ||
+                    IsKeyPressed(KEY_G) || IsKeyPressed(KEY_U))
+                    cheatedThisRun = true;
+            }
+            if (showTune)
+            {
+                if (IsKeyPressed(KEY_PAGE_DOWN)) tuneRow = (tuneRow + 1) % 6;
+                if (IsKeyPressed(KEY_PAGE_UP))   tuneRow = (tuneRow + 5) % 6;
+                int tdir = 0;
+                if (IsKeyPressed(KEY_RIGHT_BRACKET)) tdir = 1;
+                if (IsKeyPressed(KEY_LEFT_BRACKET))  tdir = -1;
+                if (tdir != 0)
+                {
+                    if (tuneRow == 0) { weapon.damage += tdir; if (weapon.damage < 1) weapon.damage = 1; }
+                    else if (tuneRow == 1) { weapon.fireInterval += tdir * 0.02f; if (weapon.fireInterval < 0.05f) weapon.fireInterval = 0.05f; }
+                    else if (tuneRow == 2) { weapon.projectileCount += tdir; if (weapon.projectileCount < 1) weapon.projectileCount = 1; }
+                    else if (tuneRow == 3) { weapon.pierce += tdir; if (weapon.pierce < 0) weapon.pierce = 0; }
+                    else if (tuneRow == 4) { player.speed += tdir * 10.0f; if (player.speed < 10.0f) player.speed = 10.0f; }
+                    else if (tuneRow == 5) { player.maxHealth += tdir * 10.0f; if (player.maxHealth < 10.0f) player.maxHealth = 10.0f; if (player.health > player.maxHealth) player.health = player.maxHealth; }
+                }
+            }
             survivalTime += dt;
-            director.Update(dt);   // продвигаем время забега (Фаза 1)
+            director.Update(dt);
+            float cheatSpeedSaved = player.speed;
+            player.speed *= Tuning::CheatSpeedMult();
             player.Update(dt, map);
+            player.speed = cheatSpeedSaved;
             spawner.Update(dt, player, map);
-            telegraphs.Update(dt, player, effects);   // продвигаем зоны и наносим урон (Фаза 2)
-            ranged.Update(dt, player, effects);       // движение снарядов и урон (Фаза 3)
+            telegraphs.Update(dt, player, effects);
+            ranged.Update(dt, player, effects);
+            hazards.Update(dt, player);
             if (player.gotHit)
             {
                 audio.Hit();
@@ -231,10 +356,36 @@ int main()
                 audio.PlayBossVoice(subtitleLine);
                 spawner.bossEventLine = -1;
             }
+            int   cheatDmgSaved     = weapon.damage;
+            float cheatFireSaved    = weapon.fireInterval;
+            int   cheatOrbitSaved   = abilities.orbitDamage;
+            int   cheatNovaSaved    = abilities.novaDamage;
+            float cheatNovaIntSaved = abilities.novaInterval;
+            int   cheatDmgMult = Tuning::CheatDamageMult();
+            if (cheatDmgMult > 1)
+            {
+                weapon.damage         *= cheatDmgMult;
+                abilities.orbitDamage *= cheatDmgMult;
+                abilities.novaDamage  *= cheatDmgMult;
+            }
+            if (Tuning::IsNoCooldown())
+            {
+                weapon.fireInterval    = 0.03f;
+                abilities.novaInterval = 0.15f;
+            }
             weapon.Update(dt, player.position, spawner, orbs, loot, effects);
             abilities.Update(dt, player.position, spawner, orbs, loot, effects);
+            weapon.damage          = cheatDmgSaved;
+            weapon.fireInterval    = cheatFireSaved;
+            abilities.orbitDamage  = cheatOrbitSaved;
+            abilities.novaDamage   = cheatNovaSaved;
+            abilities.novaInterval = cheatNovaIntSaved;
             if (weapon.firedThisFrame) audio.Shoot();
+            int cheatXpBefore = player.xp;
             orbs.Update(dt, player);
+            int cheatXpMult = Tuning::CheatXpMult();
+            if (cheatXpMult > 1 && player.xp > cheatXpBefore)
+                player.xp += (player.xp - cheatXpBefore) * (cheatXpMult - 1);
             if (orbs.collectedThisFrame > 0) audio.Pickup();
             loot.Update(dt, player, weapon);
             traps.Update(dt, player);
@@ -244,17 +395,26 @@ int main()
 
             if (subtitleTimer > 0.0f) subtitleTimer -= dt;
 
+            if (Tuning::IsGodMode()) player.health = player.maxHealth;
+
             if (player.health <= 0)
             {
                 state = GAME_OVER;
                 newRecord = false;
-                int t = (int)survivalTime;
-                if (t > save.bestTime) { save.bestTime = t; newRecord = true; }
-                if (player.level > save.bestLevel) { save.bestLevel = player.level; newRecord = true; }
-                // Монеты за забег (Шаг 26): за уровень и время.
-                lastEarnedCoins = player.level * 5 + (int)(survivalTime / 5.0f);
-                save.coins += lastEarnedCoins;
-                SaveGameSave(save);
+                if (cheatedThisRun)
+                {
+                    lastEarnedCoins = 0;
+                    save = LoadGameSave();
+                }
+                else
+                {
+                    int t = (int)survivalTime;
+                    if (t > save.bestTime) { save.bestTime = t; newRecord = true; }
+                    if (player.level > save.bestLevel) { save.bestLevel = player.level; newRecord = true; }
+                    lastEarnedCoins = player.level * 5 + (int)(survivalTime / 5.0f);
+                    save.coins += lastEarnedCoins;
+                    SaveGameSave(save);
+                }
                 effects.Shake(14.0f, 0.6f);
                 effects.SetFade(0.65f, 1.5f);
             }
@@ -303,59 +463,59 @@ int main()
             else if (state == SELECT)
             {
                 ClearBackground(Color{ 15, 12, 20, 255 });
-                const char* t = "ВЫБОР ГЕРОЯ И КАРТЫ";
+                const char* t = "\u0412\u042b\u0411\u041e\u0420 \u0413\u0415\u0420\u041e\u042f \u0418 \u041a\u0410\u0420\u0422\u042b";
                 hud.Text(t, screenWidth / 2.0f - hud.TextWidth(t, 40) / 2.0f, 110, 40, GOLD);
 
                 const CharacterClass& cc = GetCharacter(selectedCharacter);
-                const char* ct = TextFormat("Класс:  < %s >", cc.name);
+                const char* ct = TextFormat("\u041a\u043b\u0430\u0441\u0441:  < %s >", cc.name);
                 hud.Text(ct, screenWidth / 2.0f - hud.TextWidth(ct, 30) / 2.0f, 230, 30, RAYWHITE);
                 hud.Text(cc.description, screenWidth / 2.0f - hud.TextWidth(cc.description, 20) / 2.0f, 270, 20, LIGHTGRAY);
 
                 const MapDef& md = GetMap(selectedMap);
-                const char* mt = TextFormat("Карта:  %s", md.name);
+                const char* mt = TextFormat("\u041a\u0430\u0440\u0442\u0430:  %s", md.name);
                 hud.Text(mt, screenWidth / 2.0f - hud.TextWidth(mt, 30) / 2.0f, 340, 30, RAYWHITE);
                 const char* mdesc = TextFormat("%s  (%dx%d)", md.description, md.width, md.height);
                 hud.Text(mdesc, screenWidth / 2.0f - hud.TextWidth(mdesc, 20) / 2.0f, 380, 20, LIGHTGRAY);
 
-                const char* h1 = "Влево/Вправо — класс,   Вверх/Вниз — карта";
+                const char* h1 = "\u0412\u043b\u0435\u0432\u043e/\u0412\u043f\u0440\u0430\u0432\u043e \u2014 \u043a\u043b\u0430\u0441\u0441,   \u0412\u0432\u0435\u0440\u0445/\u0412\u043d\u0438\u0437 \u2014 \u043a\u0430\u0440\u0442\u0430";
                 hud.Text(h1, screenWidth / 2.0f - hud.TextWidth(h1, 20) / 2.0f, 470, 20, GRAY);
-                const char* h2 = "ENTER / ESC — назад в лагерь";
+                const char* h2 = "ENTER / ESC \u2014 \u043d\u0430\u0437\u0430\u0434 \u0432 \u043b\u0430\u0433\u0435\u0440\u044c";
                 hud.Text(h2, screenWidth / 2.0f - hud.TextWidth(h2, 20) / 2.0f, 502, 20, GRAY);
             }
             else if (state == META)
             {
                 ClearBackground(Color{ 15, 12, 20, 255 });
-                const char* t = "ЛАГЕРЬ: МЕТА-ПРОКАЧКА";
+                const char* t = "\u041b\u0410\u0413\u0415\u0420\u042c: \u041c\u0415\u0422\u0410-\u041f\u0420\u041e\u041a\u0410\u0427\u041a\u0410";
                 hud.Text(t, screenWidth / 2.0f - hud.TextWidth(t, 38) / 2.0f, 100, 38, GOLD);
-                const char* co = TextFormat("Монеты: %d", save.coins);
+                const char* co = TextFormat("\u041c\u043e\u043d\u0435\u0442\u044b: %d", save.coins);
                 hud.Text(co, screenWidth / 2.0f - hud.TextWidth(co, 26) / 2.0f, 165, 26, YELLOW);
 
                 float x = screenWidth / 2.0f - 230.0f;
                 int costH = 20 + save.upgHealth * 15;
                 int costD = 20 + save.upgDamage * 15;
                 int costS = 20 + save.upgSpeed * 15;
-                hud.Text(TextFormat("1)  +Здоровье    ур. %d    цена %d", save.upgHealth, costH), x, 250, 24, RAYWHITE);
-                hud.Text(TextFormat("2)  +Урон        ур. %d    цена %d", save.upgDamage, costD), x, 295, 24, RAYWHITE);
-                hud.Text(TextFormat("3)  +Скорость    ур. %d    цена %d", save.upgSpeed, costS), x, 340, 24, RAYWHITE);
+                hud.Text(TextFormat("1)  +\u0417\u0434\u043e\u0440\u043e\u0432\u044c\u0435    \u0443\u0440. %d    \u0446\u0435\u043d\u0430 %d", save.upgHealth, costH), x, 250, 24, RAYWHITE);
+                hud.Text(TextFormat("2)  +\u0423\u0440\u043e\u043d        \u0443\u0440. %d    \u0446\u0435\u043d\u0430 %d", save.upgDamage, costD), x, 295, 24, RAYWHITE);
+                hud.Text(TextFormat("3)  +\u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c    \u0443\u0440. %d    \u0446\u0435\u043d\u0430 %d", save.upgSpeed, costS), x, 340, 24, RAYWHITE);
 
-                const char* hint = "Покупай клавишами 1 / 2 / 3.   ESC — назад";
+                const char* hint = "\u041f\u043e\u043a\u0443\u043f\u0430\u0439 \u043a\u043b\u0430\u0432\u0438\u0448\u0430\u043c\u0438 1 / 2 / 3.   ESC \u2014 \u043d\u0430\u0437\u0430\u0434";
                 hud.Text(hint, screenWidth / 2.0f - hud.TextWidth(hint, 20) / 2.0f, 430, 20, GRAY);
             }
             else if (state == SETTINGS)
             {
                 ClearBackground(Color{ 15, 12, 20, 255 });
-                const char* t = "НАСТРОЙКИ";
+                const char* t = "\u041d\u0410\u0421\u0422\u0420\u041e\u0419\u041a\u0418";
                 hud.Text(t, screenWidth / 2.0f - hud.TextWidth(t, 40) / 2.0f, 110, 40, GOLD);
 
                 float x = screenWidth / 2.0f - 230.0f;
                 Color c0 = (settingsRow == 0) ? GOLD : RAYWHITE;
                 Color c1 = (settingsRow == 1) ? GOLD : RAYWHITE;
                 Color c2 = (settingsRow == 2) ? GOLD : RAYWHITE;
-                hud.Text(TextFormat("Музыка:         %d%%", save.musicVolume), x, 240, 26, c0);
-                hud.Text(TextFormat("Звуки:          %d%%", save.sfxVolume), x, 290, 26, c1);
-                hud.Text(TextFormat("Полный экран:   %s", save.fullscreen ? "ДА" : "НЕТ"), x, 340, 26, c2);
+                hud.Text(TextFormat("\u041c\u0443\u0437\u044b\u043a\u0430:         %d%%", save.musicVolume), x, 240, 26, c0);
+                hud.Text(TextFormat("\u0417\u0432\u0443\u043a\u0438:          %d%%", save.sfxVolume), x, 290, 26, c1);
+                hud.Text(TextFormat("\u041f\u043e\u043b\u043d\u044b\u0439 \u044d\u043a\u0440\u0430\u043d:   %s", save.fullscreen ? "\u0414\u0410" : "\u041d\u0415\u0422"), x, 340, 26, c2);
 
-                const char* hint = "Вверх/Вниз — выбор,  Влево/Вправо — изменить,  ESC — назад";
+                const char* hint = "\u0412\u0432\u0435\u0440\u0445/\u0412\u043d\u0438\u0437 \u2014 \u0432\u044b\u0431\u043e\u0440,  \u0412\u043b\u0435\u0432\u043e/\u0412\u043f\u0440\u0430\u0432\u043e \u2014 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c,  ESC \u2014 \u043d\u0430\u0437\u0430\u0434";
                 hud.Text(hint, screenWidth / 2.0f - hud.TextWidth(hint, 18) / 2.0f, 430, 18, GRAY);
             }
             else
@@ -363,29 +523,112 @@ int main()
                 BeginMode2D(camera);
                     map.Draw(camera);
                     traps.Draw();
-                    telegraphs.Draw();   // предупреждающие зоны — по земле, под сущностями (Фаза 2)
+                    telegraphs.Draw();
+                    hazards.Draw();
                     loot.Draw();
                     orbs.Draw();
                     spawner.Draw(camera, screenWidth, screenHeight);
-                    ranged.Draw();       // снаряды врагов поверх врагов (Фаза 3)
+                    ranged.Draw();
                     weapon.Draw();
                     player.Draw();
                     abilities.Draw(player.position);
                     effects.DrawWorld();
-                    if (showDebug) telegraphs.DrawDebug();   // отладка: контуры зон (Фаза 2)
-                    if (showDebug) ranged.DrawDebug();       // отладка: радиусы снарядов (Фаза 3)
+                    if (showDebug) telegraphs.DrawDebug();
+                    if (showDebug) ranged.DrawDebug();
+                    if (showDebug) hazards.DrawDebug();
                 EndMode2D();
 
                 effects.DrawScreen(screenWidth, screenHeight);
 
                 hud.DrawGame(player, spawner, weapon, survivalTime);
 
-                // Отладочный оверлей (F3): текущие правила конфига и статус приёмов (Шаг 5).
-                // Латинские имена — читаемы даже без кириллического шрифта.
+                {
+                    const char* dn = TextFormat("\u0421\u043b\u043e\u0436\u043d\u043e\u0441\u0442\u044c: %s  (F2)", Tuning::DifficultyName());
+                    hud.Text(dn, screenWidth / 2.0f - hud.TextWidth(dn, 18) / 2.0f, 54.0f, 18, Color{ 255, 210, 120, 255 });
+                }
+
+                if (Tuning::AnyCheatActive())
+                {
+                    const char* cw = TextFormat("\u0427\u0418\u0422\u042b \u0410\u041a\u0422\u0418\u0412\u041d\u042b: %d", Tuning::ActiveCheatCount());
+                    hud.Text(cw, screenWidth / 2.0f - hud.TextWidth(cw, 20) / 2.0f, 28.0f, 20, Color{ 255, 80, 80, 255 });
+                }
+
+                if (showOverlay)
+                {
+                    float ox = screenWidth - 380.0f, oy = 80.0f;
+                    float ow = 360.0f, oh = 344.0f;
+                    DrawRectangle((int)ox, (int)oy, (int)ow, (int)oh, Color{ 10, 10, 16, 210 });
+                    DrawRectangleLines((int)ox, (int)oy, (int)ow, (int)oh, Color{ 120, 200, 255, 255 });
+                    float tx = ox + 18.0f, ty = oy + 14.0f;
+                    hud.Text("\u0418\u041d\u0424\u041e  (F1 \u2014 \u0437\u0430\u043a\u0440\u044b\u0442\u044c)", tx, ty, 22, Color{ 120, 200, 255, 255 }); ty += 34.0f;
+                    hud.Text(TextFormat("\u0412\u0440\u0435\u043c\u044f:   %.1f \u0441", survivalTime), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("\u0423\u0440\u043e\u0432\u0435\u043d\u044c: %d", (int)player.level), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("HP:      %d / %d", (int)player.health, (int)player.maxHealth), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("\u041e\u0440\u0443\u0436\u0438\u0435:  \u0443\u0440.%d  \u0443\u0440\u043e\u043d %d  x%d  \u043f\u0440\u043e\u0431\u043e\u0439 %d%s",
+                        weapon.level, weapon.damage, weapon.projectileCount, weapon.pierce,
+                        weapon.evolved ? "  [\u042d\u0412\u041e]" : ""), tx, ty, 18, RAYWHITE); ty += 24.0f;
+                    hud.Text(TextFormat("\u041c\u043e\u043d\u0435\u0442\u044b: %d", save.coins), tx, ty, 18, GOLD); ty += 30.0f;
+                    hud.Text("\u0423\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435:", tx, ty, 18, Color{ 120, 200, 255, 255 }); ty += 24.0f;
+                    hud.Text("WASD / \u0441\u0442\u0440\u0435\u043b\u043a\u0438 \u2014 \u0434\u0432\u0438\u0436\u0435\u043d\u0438\u0435", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("\u041f\u0440\u043e\u0431\u0435\u043b / Shift \u2014 \u0440\u044b\u0432\u043e\u043a", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("ESC \u2014 \u043f\u0430\u0443\u0437\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F1 \u2014 \u044d\u0442\u043e\u0442 \u043e\u0432\u0435\u0440\u043b\u0435\u0439", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F2 \u2014 \u0441\u043b\u043e\u0436\u043d\u043e\u0441\u0442\u044c (\u0422\u0435\u0441\u0442/\u041d\u043e\u0440\u043c\u0430)", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F3 \u2014 \u043e\u0442\u043b\u0430\u0434\u043a\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F8 \u2014 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430 \u0431\u0430\u043b\u0430\u043d\u0441\u0430", tx, ty, 16, LIGHTGRAY); ty += 21.0f;
+                    hud.Text("F9 \u2014 \u0447\u0438\u0442\u044b \u0440\u0430\u0437\u0440\u0430\u0431\u043e\u0442\u0447\u0438\u043a\u0430", tx, ty, 16, LIGHTGRAY);
+                }
+
+                if (showTune)
+                {
+                    float px = 16.0f, py = screenHeight - 252.0f;
+                    float pw = 380.0f, ph = 234.0f;
+                    DrawRectangle((int)px, (int)py, (int)pw, (int)ph, Color{ 16, 10, 10, 215 });
+                    DrawRectangleLines((int)px, (int)py, (int)pw, (int)ph, Color{ 255, 180, 90, 255 });
+                    float tx = px + 16.0f, ty = py + 12.0f;
+                    hud.Text("\u041d\u0410\u0421\u0422\u0420\u041e\u0419\u041a\u0410 (F8)   [ ] \u2014 \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c   PgUp/Dn \u2014 \u0441\u0442\u0440\u043e\u043a\u0430", tx, ty, 16, Color{ 255, 180, 90, 255 }); ty += 30.0f;
+                    hud.Text(TextFormat("%c \u0423\u0440\u043e\u043d \u043e\u0440\u0443\u0436\u0438\u044f:  %d", tuneRow == 0 ? '>' : ' ', weapon.damage), tx, ty, 18, tuneRow == 0 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b \u043e\u0433\u043d\u044f: %.2f", tuneRow == 1 ? '>' : ' ', weapon.fireInterval), tx, ty, 18, tuneRow == 1 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u0421\u043d\u0430\u0440\u044f\u0434\u043e\u0432:     %d", tuneRow == 2 ? '>' : ' ', weapon.projectileCount), tx, ty, 18, tuneRow == 2 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u041f\u0440\u043e\u0431\u043e\u0439:       %d", tuneRow == 3 ? '>' : ' ', weapon.pierce), tx, ty, 18, tuneRow == 3 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c:     %.0f", tuneRow == 4 ? '>' : ' ', player.speed), tx, ty, 18, tuneRow == 4 ? GOLD : RAYWHITE); ty += 26.0f;
+                    hud.Text(TextFormat("%c \u041c\u0430\u043a\u0441. HP:     %.0f", tuneRow == 5 ? '>' : ' ', player.maxHealth), tx, ty, 18, tuneRow == 5 ? GOLD : RAYWHITE); ty += 26.0f;
+                }
+
+                if (Tuning::IsDevPanelOpen())
+                {
+                    const int rows = 12;
+                    float px = (float)Tuning::kDevPanelX;
+                    float py = (float)Tuning::kDevPanelY;
+                    float pw = (float)Tuning::kDevPanelWidth;
+                    float ph = (float)(Tuning::kDevPanelPad * 2 + Tuning::kDevPanelTitleSize + 10 + rows * Tuning::kDevPanelRowHeight);
+                    DrawRectangle((int)px, (int)py, (int)pw, (int)ph, Color{ 8, 16, 10, 215 });
+                    DrawRectangleLines((int)px, (int)py, (int)pw, (int)ph, Color{ 120, 255, 150, 255 });
+                    float tx = px + (float)Tuning::kDevPanelPad;
+                    float ty = py + (float)Tuning::kDevPanelPad;
+                    const Color on = Color{ 120, 255, 150, 255 };
+                    float ts = (float)Tuning::kDevPanelTextSize;
+                    float rh = (float)Tuning::kDevPanelRowHeight;
+                    hud.Text("\u0427\u0418\u0422\u042b \u0420\u0410\u0417\u0420\u0410\u0411\u041e\u0422\u0427\u0418\u041a\u0410 (F9 \u2014 \u0437\u0430\u043a\u0440\u044b\u0442\u044c)", tx, ty, (float)Tuning::kDevPanelTitleSize, on);
+                    ty += (float)Tuning::kDevPanelTitleSize + 10.0f;
+                    hud.Text(TextFormat("1 \u2014 \u0411\u0435\u0441\u0441\u043c\u0435\u0440\u0442\u0438\u0435: %s", Tuning::IsGodMode() ? "\u0412\u041a\u041b" : "\u0412\u042b\u041a\u041b"), tx, ty, ts, Tuning::IsGodMode() ? on : LIGHTGRAY); ty += rh;
+                    hud.Text(TextFormat("2 \u2014 \u0423\u0440\u043e\u043d: x%d", Tuning::CheatDamageMult()), tx, ty, ts, Tuning::CheatDamageMult() > 1 ? on : LIGHTGRAY); ty += rh;
+                    hud.Text(TextFormat("3 \u2014 \u041e\u043f\u044b\u0442: x%d", Tuning::CheatXpMult()), tx, ty, ts, Tuning::CheatXpMult() > 1 ? on : LIGHTGRAY); ty += rh;
+                    hud.Text(TextFormat("4 \u2014 \u0421\u043a\u043e\u0440\u043e\u0441\u0442\u044c: x%d", Tuning::CheatSpeedMult()), tx, ty, ts, Tuning::CheatSpeedMult() > 1 ? on : LIGHTGRAY); ty += rh;
+                    hud.Text("5 \u2014 \u0412\u044b\u0434\u0430\u0442\u044c \u0443\u0440\u043e\u0432\u0435\u043d\u044c", tx, ty, ts, LIGHTGRAY); ty += rh;
+                    hud.Text("6 \u2014 \u0423\u0431\u0438\u0442\u044c \u0432\u0441\u0435\u0445", tx, ty, ts, LIGHTGRAY); ty += rh;
+                    hud.Text(TextFormat("7 \u2014 \u041f\u0430\u0443\u0437\u0430 \u0441\u043f\u0430\u0432\u043d\u0430: %s", Tuning::IsSpawnPaused() ? "\u0412\u041a\u041b" : "\u0412\u042b\u041a\u041b"), tx, ty, ts, Tuning::IsSpawnPaused() ? on : LIGHTGRAY); ty += rh;
+                    hud.Text("8 \u2014 \u0417\u0430\u0441\u043f\u0430\u0432\u043d\u0438\u0442\u044c \u0431\u043e\u0441\u0441\u0430", tx, ty, ts, LIGHTGRAY); ty += rh;
+                    hud.Text(TextFormat("9 \u2014 \u041d\u0435\u0443\u044f\u0437\u0432\u0438\u043c\u043e\u0441\u0442\u044c: %s", Tuning::IsInvulnerable() ? "\u0412\u041a\u041b" : "\u0412\u042b\u041a\u041b"), tx, ty, ts, Tuning::IsInvulnerable() ? on : LIGHTGRAY); ty += rh;
+                    hud.Text(TextFormat("0 \u2014 \u0421\u043a\u0432\u043e\u0437\u044c \u0432\u0440\u0430\u0433\u043e\u0432: %s", Tuning::IsPassThrough() ? "\u0412\u041a\u041b" : "\u0412\u042b\u041a\u041b"), tx, ty, ts, Tuning::IsPassThrough() ? on : LIGHTGRAY); ty += rh;
+                    hud.Text(TextFormat("C \u2014 \u0411\u0435\u0437 \u043f\u0435\u0440\u0435\u0437\u0430\u0440\u044f\u0434\u043a\u0438: %s", Tuning::IsNoCooldown() ? "\u0412\u041a\u041b" : "\u0412\u042b\u041a\u041b"), tx, ty, ts, Tuning::IsNoCooldown() ? on : LIGHTGRAY); ty += rh;
+                    hud.Text("T \u2014 \u0442\u0435\u043b\u0435\u043f\u043e\u0440\u0442   G \u2014 \u043e\u043f\u044b\u0442/\u0437\u043e\u043b\u043e\u0442\u043e   U \u2014 \u0443\u043b\u0443\u0447\u0448\u0435\u043d\u0438\u044f", tx, ty, ts, LIGHTGRAY);
+                }
+
                 if (showDebug)
                 {
                     float dx = 16.0f, dy = 90.0f;
-                    hud.Text(TextFormat("DEBUG F3  t=%.1f  wave=%d  spawn=%.2f  TG=%d  PROJ=%d",
+                    hud.Text(TextFormat("\u041e\u0422\u041b\u0410\u0414\u041a\u0410 F3  t=%.1f  \u0432\u043e\u043b\u043d\u0430=%d  \u0441\u043f\u0430\u0432\u043d=%.2f  TG=%d  PROJ=%d",
                         director.elapsed, director.WaveCount(), director.SpawnInterval(),
                         telegraphs.ActiveCount(), ranged.ActiveCount()), dx, dy, 18, LIME);
                     dy += 26.0f;
@@ -395,9 +638,9 @@ int main()
                         const Tuning::AbilityRule& r = Tuning::GetRule(id);
                         const char* status;
                         Color col;
-                        if (!director.IsUnlocked(id)) { status = TextFormat("LOCKED unlock=%.0fs", r.unlockTime); col = GRAY; }
-                        else if (director.CanUse(id)) { status = "READY"; col = LIME; }
-                        else { status = TextFormat("CD %.1fs", director.CooldownLeft(id)); col = ORANGE; }
+                        if (!director.IsUnlocked(id)) { status = TextFormat("\u0417\u0410\u041a\u0420\u042b\u0422 \u043e\u0442\u043a\u0440=%.0f\u0441", r.unlockTime); col = GRAY; }
+                        else if (director.CanUse(id)) { status = "\u0413\u041e\u0422\u041e\u0412"; col = LIME; }
+                        else { status = TextFormat("\u041a\u0414 %.1f\u0441", director.CooldownLeft(id)); col = ORANGE; }
                         hud.Text(TextFormat("%-9s %s", r.name, status), dx, dy, 16, col);
                         dy += 19.0f;
                     }
@@ -417,7 +660,7 @@ int main()
                 else if (state == GAME_OVER)
                 {
                     hud.DrawGameOver(survivalTime, player.level, save.bestTime, save.bestLevel, newRecord);
-                    const char* ce = TextFormat("Заработано монет: %d   (всего: %d)", lastEarnedCoins, save.coins);
+                    const char* ce = TextFormat("\u0417\u0430\u0440\u0430\u0431\u043e\u0442\u0430\u043d\u043e \u043c\u043e\u043d\u0435\u0442: %d   (\u0432\u0441\u0435\u0433\u043e: %d)", lastEarnedCoins, save.coins);
                     hud.Text(ce, screenWidth / 2.0f - hud.TextWidth(ce, 22) / 2.0f, 410, 22, GOLD);
                 }
             }

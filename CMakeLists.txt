@@ -35,6 +35,7 @@ add_executable(${PROJECT_NAME}
     src/director.cpp
     src/telegraph.cpp
     src/ranged.cpp
+    src/hazards.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} raylib)

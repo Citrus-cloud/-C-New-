@@ -273,7 +273,11 @@ void Effects::DrawWorld() const
         if (a < 0.0f) a = 0.0f;
         char buf[16];
         snprintf(buf, sizeof(buf), "%d", n.value);
-        int fontSize = (int)(20 * n.scale);
+        // «Поп» в начале жизни: число коротко увеличивается и оседает (Шаг 38).
+        float age = 1.0f - a;
+        float pop = (age < 0.15f) ? (1.0f + (0.15f - age) * 2.0f) : 1.0f;
+        int fontSize = (int)(20 * n.scale * pop);
+        if (fontSize < 1) fontSize = 1;
         int w = MeasureText(buf, fontSize);
         Color c = n.color;
         c.a = (unsigned char)(255 * a);
@@ -284,6 +288,16 @@ void Effects::DrawWorld() const
 
 void Effects::DrawScreen(int screenWidth, int screenHeight) const
 {
+    // Виньетка (Шаг 38): мягкое затемнение краёв экрана для атмосферы подземелья.
+    // Чисто визуальный слой, на геймплей не влияет. Рисуем под вспышкой и затемнением.
+    const unsigned char kVig = 70;            // максимальная непрозрачность у самого края
+    int vw = screenWidth / 5;                 // ширина боковых градиентов
+    int vh = screenHeight / 5;                // высота верхнего/нижнего градиентов
+    DrawRectangleGradientV(0, 0, screenWidth, vh, Color{ 0, 0, 0, kVig }, Color{ 0, 0, 0, 0 });
+    DrawRectangleGradientV(0, screenHeight - vh, screenWidth, vh, Color{ 0, 0, 0, 0 }, Color{ 0, 0, 0, kVig });
+    DrawRectangleGradientH(0, 0, vw, screenHeight, Color{ 0, 0, 0, kVig }, Color{ 0, 0, 0, 0 });
+    DrawRectangleGradientH(screenWidth - vw, 0, vw, screenHeight, Color{ 0, 0, 0, 0 }, Color{ 0, 0, 0, kVig });
+
     if (flashAlpha > 0.0f)
     {
         Color c = flashColor;
